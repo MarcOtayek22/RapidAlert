@@ -3,26 +3,37 @@ import { Text, View } from "react-native";
 import Screen from "../components/Screen";
 import Header from "../components/Header";
 import Card from "../components/Card";
+import Chip from "../components/Chip";
 import PrimaryButton from "../components/PrimaryButton";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../theme/theme";
 
-const STATUS_LABELS = [
-  "Unverified",
-  "Verified",
-  "False / Misleading",
-  "Resolved / Expired",
-];
+const STATUS_LABELS = ["Unverified", "Verified", "False / Misleading", "Resolved / Expired"];
 
 export default function IncidentDetailsScreen({ route, navigation }) {
   const incident = route?.params?.incident || {};
+  const currentStatus = incident.status || "Unverified"; // logic unchanged
 
-  // Phase 1: fake status if none provided
-  const currentStatus = incident.status || "Unverified";
+  const toneFor = (label) => {
+    if (label === "Verified") return "success";
+    if (label === "Unverified") return "warn";
+    if (label === "False / Misleading") return "danger";
+    return "neutral";
+  };
 
   return (
     <Screen>
-      <Header title="Incident" subtitle={incident.category || "Details"} />
+      <Header
+        title="🧭 Incident"
+        subtitle={incident.category || "Details"}
+        left={<Ionicons name="information-circle" size={20} color={theme.colors.primary3} />}
+      />
+
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+        <Chip icon="calendar" text="Timeline" />
+        <Chip icon="location" text="Location" />
+        <Chip icon="shield-checkmark" text="Status" />
+      </View>
 
       <Card strong>
         <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 18 }}>
@@ -35,7 +46,6 @@ export default function IncidentDetailsScreen({ route, navigation }) {
 
         <View style={{ height: theme.spacing(2) }} />
 
-        {/* Incident meta */}
         <View
           style={{
             borderTopWidth: 1,
@@ -54,7 +64,6 @@ export default function IncidentDetailsScreen({ route, navigation }) {
 
         <View style={{ height: theme.spacing(2) }} />
 
-        {/* Status labels (Phase 1 requirement) */}
         <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>
           Incident Status
         </Text>
@@ -68,32 +77,13 @@ export default function IncidentDetailsScreen({ route, navigation }) {
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
           {STATUS_LABELS.map((label) => {
             const active = label === currentStatus;
-
             return (
-              <View
-                key={label}
-                style={{
-                  paddingVertical: 8,
-                  paddingHorizontal: 12,
-                  borderRadius: 999,
-                  backgroundColor: active
-                    ? theme.colors.cardStrong
-                    : "transparent",
-                  borderWidth: 1,
-                  borderColor: active
-                    ? theme.colors.border
-                    : theme.colors.divider,
-                }}
-              >
-                <Text
-                  style={{
-                    color: active ? theme.colors.text : theme.colors.muted,
-                    fontWeight: "900",
-                    fontSize: 12,
-                  }}
-                >
-                  {label}
-                </Text>
+              <View key={label} style={{ opacity: active ? 1 : 0.85 }}>
+                <Chip
+                  icon={active ? "checkmark-circle" : "ellipse-outline"}
+                  text={label}
+                  tone={active ? toneFor(label) : "neutral"}
+                />
               </View>
             );
           })}

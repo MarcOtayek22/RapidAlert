@@ -1,58 +1,53 @@
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { Text, View } from "react-native";
+import Screen from "../components/Screen";
+import Header from "../components/Header";
+import Card from "../components/Card";
+import Chip from "../components/Chip";
+import PrimaryButton from "../components/PrimaryButton";
+import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../theme/theme";
 
 export default function VolunteerApplyScreen({ navigation }) {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Volunteer Application</Text>
-      <Text style={styles.subtitle}>
-        Phase 1 placeholder: upload docs + submit (no backend yet)
-      </Text>
+    <Screen>
+      <Header
+        title="🫶 Volunteer Application"
+        subtitle="Phase 1 placeholder: upload docs + submit (no backend yet)"
+        left={<Ionicons name="document-text" size={20} color={theme.colors.primary3} />}
+      />
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Required Documents (placeholder)</Text>
-        <Text style={styles.cardText}>• ID / Passport</Text>
-        <Text style={styles.cardText}>• Proof of affiliation (optional)</Text>
-        <Text style={styles.cardText}>• Short motivation / skills</Text>
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+        <Chip icon="id-card" text="Identity" />
+        <Chip icon="attach" text="Documents" />
+        <Chip icon="send" text="Submit" tone="success" />
       </View>
 
-      <TouchableOpacity style={styles.primaryBtn} onPress={() => {}}>
-        <Text style={styles.primaryBtnText}>Submit Application (placeholder)</Text>
-      </TouchableOpacity>
+      <Card strong>
+        <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>
+          📄 Required Documents (placeholder)
+        </Text>
 
-      <TouchableOpacity style={styles.secondaryBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.secondaryBtnText}>Back</Text>
-      </TouchableOpacity>
-    </View>
+        <Text style={{ color: theme.colors.faint, marginTop: 10 }}>• ID / Passport</Text>
+        <Text style={{ color: theme.colors.faint, marginTop: 6 }}>• Proof of affiliation (optional)</Text>
+        <Text style={{ color: theme.colors.faint, marginTop: 6 }}>• Short motivation / skills</Text>
+
+        <View style={{ height: theme.spacing(2) }} />
+
+        <PrimaryButton
+          title="Submit Application (placeholder)"
+          onPress={() => {}}
+          icon={<Ionicons name="paper-plane" size={18} color="white" />}
+        />
+
+        <View style={{ height: theme.spacing(2) }} />
+
+        <PrimaryButton
+          title="Back"
+          onPress={() => navigation.goBack()}
+          icon={<Ionicons name="arrow-back" size={18} color="white" />}
+        />
+      </Card>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, padding: 24, backgroundColor: theme.colors.bg0 },
-  title: { fontSize: 28, fontWeight: "900", color: theme.colors.text, marginTop: 18 },
-  subtitle: { marginTop: 8, color: theme.colors.muted, fontSize: 14, lineHeight: 20 },
-
-  card: {
-    marginTop: 18,
-    backgroundColor: theme.colors.card,
-    borderColor: theme.colors.border,
-    borderWidth: 1,
-    borderRadius: 18,
-    padding: 16,
-  },
-  cardTitle: { color: theme.colors.text, fontWeight: "800", fontSize: 16, marginBottom: 8 },
-  cardText: { color: theme.colors.muted, fontSize: 14, marginTop: 4 },
-
-  primaryBtn: {
-    marginTop: 18,
-    backgroundColor: theme.colors.primary,
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: "center",
-  },
-  primaryBtnText: { color: theme.colors.text, fontWeight: "900" },
-
-  secondaryBtn: { marginTop: 12, paddingVertical: 12, alignItems: "center" },
-  secondaryBtnText: { color: theme.colors.muted, fontWeight: "800" },
-});

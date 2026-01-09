@@ -3,6 +3,7 @@ import { Text, View, TextInput } from "react-native";
 import Screen from "../components/Screen";
 import Header from "../components/Header";
 import Card from "../components/Card";
+import Chip from "../components/Chip";
 import PrimaryButton from "../components/PrimaryButton";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../theme/theme";
@@ -15,7 +16,6 @@ export default function ProfileScreen() {
   const [password, setPassword] = useState("12345678");
   const [error, setError] = useState(null);
 
-  // --- Normalize role + verified so UI gating never breaks ---
   const roleNorm = useMemo(() => String(role || "guest").trim().toLowerCase(), [role]);
   const verifiedBool = useMemo(() => verified === true || verified === "true" || verified === 1, [verified]);
 
@@ -35,7 +35,6 @@ export default function ProfileScreen() {
     try {
       setError(null);
       await login(email.trim(), password);
-      // extra safety: some navigation flows delay refresh
       if (typeof refresh === "function") await refresh();
     } catch (e) {
       setError(e?.message || "Login failed");
@@ -44,15 +43,25 @@ export default function ProfileScreen() {
 
   return (
     <Screen>
-      <Header title="Profile" subtitle="Auth + roles + verification" />
+      <Header
+        title="👤 Profile"
+        subtitle="Auth + roles + verification"
+        left={<Ionicons name="person" size={20} color={theme.colors.primary3} />}
+      />
+
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+        <Chip icon="lock-closed" text="Secure login" />
+        <Chip icon="shield-checkmark" text="Roles" />
+        <Chip icon="sparkles" text="Verification" />
+      </View>
 
       <Card strong>
         {loading ? (
-          <Text style={{ color: theme.colors.faint }}>Loading...</Text>
+          <Text style={{ color: theme.colors.faint }}>⏳ Loading...</Text>
         ) : isGuest ? (
           <>
             <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>
-              Guest
+              👋 Guest
             </Text>
             <Text style={{ color: theme.colors.faint, marginTop: 8 }}>
               You can browse, but reporting / SOS requires login.
@@ -60,43 +69,61 @@ export default function ProfileScreen() {
 
             <View style={{ height: theme.spacing(2) }} />
 
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              placeholder="Email"
-              placeholderTextColor={theme.colors.muted}
-              autoCapitalize="none"
-              style={{
-                backgroundColor: "rgba(255,255,255,0.06)",
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                borderRadius: 14,
-                padding: 12,
-                color: theme.colors.text,
-                marginBottom: 10,
-              }}
-            />
+            <View style={{ gap: 10 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  backgroundColor: "rgba(255,255,255,0.06)",
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  borderRadius: 16,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Ionicons name="mail" size={18} color={theme.colors.primary3} />
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="Email"
+                  placeholderTextColor={theme.colors.muted}
+                  autoCapitalize="none"
+                  style={{ color: theme.colors.text, flex: 1, fontWeight: "800" }}
+                />
+              </View>
 
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="Password"
-              placeholderTextColor={theme.colors.muted}
-              secureTextEntry
-              style={{
-                backgroundColor: "rgba(255,255,255,0.06)",
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                borderRadius: 14,
-                padding: 12,
-                color: theme.colors.text,
-                marginBottom: 12,
-              }}
-            />
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  backgroundColor: "rgba(255,255,255,0.06)",
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                  borderRadius: 16,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+              >
+                <Ionicons name="key" size={18} color={theme.colors.primary3} />
+                <TextInput
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Password"
+                  placeholderTextColor={theme.colors.muted}
+                  secureTextEntry
+                  style={{ color: theme.colors.text, flex: 1, fontWeight: "800" }}
+                />
+              </View>
+            </View>
+
+            <View style={{ height: theme.spacing(1) }} />
 
             {error ? (
-              <Text style={{ color: theme.colors.danger, marginBottom: 10 }}>
-                {error}
+              <Text style={{ color: theme.colors.danger, marginBottom: 10, fontWeight: "900" }}>
+                ❌ {error}
               </Text>
             ) : null}
 
@@ -109,37 +136,31 @@ export default function ProfileScreen() {
         ) : (
           <>
             <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>
-              {displayName}
+              ✨ {displayName}
             </Text>
 
-            <Text style={{ color: theme.colors.faint, marginTop: 8 }}>
-              Role:{" "}
-              <Text style={{ color: theme.colors.text, fontWeight: "900" }}>
-                {roleNorm}
-              </Text>
-            </Text>
+            <View style={{ height: theme.spacing(1) }} />
 
-            <Text style={{ color: theme.colors.faint, marginTop: 6 }}>
-              Verified:{" "}
-              <Text style={{ color: theme.colors.text, fontWeight: "900" }}>
-                {verifiedBool ? "Yes" : "No"}
-              </Text>
-            </Text>
+            <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+              <Chip icon="person-circle" text={`Role: ${roleNorm}`} />
+              <Chip
+                icon={verifiedBool ? "checkmark-circle" : "close-circle"}
+                text={verifiedBool ? "Verified: Yes" : "Verified: No"}
+                tone={verifiedBool ? "success" : "warn"}
+              />
+            </View>
 
             <View style={{ height: theme.spacing(2) }} />
 
-            {/* ✅ Gating that will not break */}
             {(isUser || isAdmin) && !verifiedBool ? (
               <>
                 <Text style={{ color: theme.colors.faint, marginBottom: 10 }}>
-                  Apply to become a verified volunteer (application workflow later).
+                  🧾 Apply to become a verified volunteer (application workflow later).
                 </Text>
 
                 <PrimaryButton
                   title="Apply to be Volunteer"
                   onPress={() => {
-                    // Phase 11: navigate to Apply screen
-                    // For now you can put a console.log or alert
                     console.log("Apply pressed");
                   }}
                   icon={<Ionicons name="shield-checkmark" size={18} color="white" />}
@@ -151,7 +172,7 @@ export default function ProfileScreen() {
             {isVolunteer && !verifiedBool ? (
               <>
                 <Text style={{ color: theme.colors.warn, fontWeight: "900", marginBottom: 10 }}>
-                  Volunteer role detected, but not verified — tasks locked.
+                  ⚠️ Volunteer role detected, but not verified — tasks locked.
                 </Text>
                 <View style={{ height: theme.spacing(2) }} />
               </>
@@ -160,7 +181,7 @@ export default function ProfileScreen() {
             {isVolunteer && verifiedBool ? (
               <>
                 <Text style={{ color: theme.colors.success, fontWeight: "900", marginBottom: 10 }}>
-                  Verified volunteer — tasks unlocked (placeholder UI).
+                  ✅ Verified volunteer — tasks unlocked (placeholder UI).
                 </Text>
 
                 <PrimaryButton
@@ -189,26 +210,13 @@ export default function ProfileScreen() {
         )}
       </Card>
 
-      {/* Debug panel (remove later) */}
       <Card>
-        <Text style={{ color: theme.colors.faint }}>
-          Debug:
-        </Text>
-        <Text style={{ color: theme.colors.faint }}>
-          isLoggedIn: {String(isLoggedIn)}
-        </Text>
-        <Text style={{ color: theme.colors.faint }}>
-          role(raw): {String(role)}
-        </Text>
-        <Text style={{ color: theme.colors.faint }}>
-          role(norm): {String(roleNorm)}
-        </Text>
-        <Text style={{ color: theme.colors.faint }}>
-          verified(raw): {String(verified)}
-        </Text>
-        <Text style={{ color: theme.colors.faint }}>
-          verified(bool): {String(verifiedBool)}
-        </Text>
+        <Text style={{ color: theme.colors.faint, fontWeight: "900" }}>🐞 Debug:</Text>
+        <Text style={{ color: theme.colors.faint }}>isLoggedIn: {String(isLoggedIn)}</Text>
+        <Text style={{ color: theme.colors.faint }}>role(raw): {String(role)}</Text>
+        <Text style={{ color: theme.colors.faint }}>role(norm): {String(roleNorm)}</Text>
+        <Text style={{ color: theme.colors.faint }}>verified(raw): {String(verified)}</Text>
+        <Text style={{ color: theme.colors.faint }}>verified(bool): {String(verifiedBool)}</Text>
       </Card>
     </Screen>
   );

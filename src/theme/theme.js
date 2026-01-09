@@ -1,28 +1,23 @@
 export const theme = {
   colors: {
-    // backgrounds
-    bg0: "#070B16", // deepest
-    bg1: "#0B1430", // mid
-    bg2: "#111827", // neutral dark slate
- // top glow
+    bg0: "#07060A",
+    bg1: "#0B0810",
+    bg2: "#14101C",
 
-    // surfaces
     card: "rgba(255,255,255,0.06)",
     cardStrong: "rgba(255,255,255,0.10)",
     border: "rgba(255,255,255,0.12)",
     divider: "rgba(255,255,255,0.08)",
 
-    // text
-    text: "#EAF0FF",
-    muted: "#A7B3CF",
-    faint: "rgba(234,240,255,0.65)",
+    text: "#F4F6FF",
+    muted: "#B7BFD6",
+    faint: "rgba(244,246,255,0.70)",
 
-    // accents
-    // accents
-primary: "#FF3B30",    // iOS emergency red (🔥 VERY important)
-primary2: "#FF6B6B",   // lighter red for gradients
-danger: "#FF3B30",     // SAME as primary (intentional)
+    primary: "#FF3B30",
+    primary2: "#FF6B6B",
+    primary3: "#FFB3B3",
 
+    danger: "#FF3B30",
     success: "#2ED47A",
     warn: "#FFB020",
   },
@@ -37,7 +32,6 @@ danger: "#FF3B30",     // SAME as primary (intentional)
   },
 
   shadow: {
-    // subtle iOS-like glow
     soft: {
       shadowColor: "#000",
       shadowOpacity: 0.25,
@@ -48,9 +42,9 @@ danger: "#FF3B30",     // SAME as primary (intentional)
   },
 
   type: {
-    h1: { fontSize: 30, fontWeight: "800", letterSpacing: -0.2 },
-    h2: { fontSize: 22, fontWeight: "800" },
-    body: { fontSize: 15, fontWeight: "500" },
-    small: { fontSize: 13, fontWeight: "600" },
+    h1: { fontSize: 30, fontWeight: "900", letterSpacing: -0.2 },
+    h2: { fontSize: 20, fontWeight: "900", letterSpacing: -0.1 },
+    body: { fontSize: 15, fontWeight: "700" },
+    small: { fontSize: 13, fontWeight: "800" },
   },
 };

@@ -3,6 +3,7 @@ import { Text, View } from "react-native";
 import Screen from "../components/Screen";
 import Header from "../components/Header";
 import Card from "../components/Card";
+import Chip from "../components/Chip";
 import PrimaryButton from "../components/PrimaryButton";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../theme/theme";
@@ -15,11 +16,22 @@ export default function ReportScreen() {
 
   return (
     <Screen>
-      <Header title="Report" subtitle="Create an incident report (UI first)" />
+      <Header
+        title="🚨 Report"
+        subtitle="Create an incident report (UI first)"
+        left={<Ionicons name="alert-circle" size={20} color={theme.colors.primary3} />}
+      />
+
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+        <Chip icon="list" text="Category" />
+        <Chip icon="document-text" text="Details" />
+        <Chip icon="camera" text="Photo" />
+        <Chip icon="navigate" text="Location" />
+      </View>
 
       <Card strong>
         <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>
-          Report form (next)
+          📝 Report form (next)
         </Text>
 
         <View style={{ height: theme.spacing(1) }} />
@@ -33,7 +45,7 @@ export default function ReportScreen() {
         {!isLoggedIn ? (
           <>
             <Text style={{ color: theme.colors.warn, fontWeight: "800", marginBottom: 10 }}>
-              Login required to start a report.
+              🔒 Login required to start a report.
             </Text>
 
             <PrimaryButton
