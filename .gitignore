@@ -46,3 +46,5 @@ yarn-error.*
 
 backend/node_modules/
 backend/.env
+backend_node_old/
+.env

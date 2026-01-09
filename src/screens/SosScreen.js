@@ -6,8 +6,13 @@ import Card from "../components/Card";
 import PrimaryButton from "../components/PrimaryButton";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../theme/theme";
+import { useAuth } from "../auth/AuthContext";
+import { useNavigation } from "@react-navigation/native";
 
 export default function SosScreen() {
+  const { isLoggedIn } = useAuth();
+  const navigation = useNavigation();
+
   return (
     <Screen>
       <Header title="SOS" subtitle="Emergency alert (next: hold-to-send)" />
@@ -25,11 +30,25 @@ export default function SosScreen() {
 
         <View style={{ height: theme.spacing(2) }} />
 
-        <PrimaryButton
-          title="Test SOS UI"
-          onPress={() => {}}
-          icon={<Ionicons name="radio" size={18} color="white" />}
-        />
+        {!isLoggedIn ? (
+          <>
+            <Text style={{ color: theme.colors.warn, fontWeight: "800", marginBottom: 10 }}>
+              Login required to use SOS.
+            </Text>
+
+            <PrimaryButton
+              title="Go to Login"
+              onPress={() => navigation.navigate("Profile")}
+              icon={<Ionicons name="log-in" size={18} color="white" />}
+            />
+          </>
+        ) : (
+          <PrimaryButton
+            title="Test SOS UI"
+            onPress={() => {}}
+            icon={<Ionicons name="radio" size={18} color="white" />}
+          />
+        )}
       </Card>
     </Screen>
   );

@@ -6,8 +6,13 @@ import Card from "../components/Card";
 import PrimaryButton from "../components/PrimaryButton";
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../theme/theme";
+import { useAuth } from "../auth/AuthContext";
+import { useNavigation } from "@react-navigation/native";
 
 export default function ReportScreen() {
+  const { isLoggedIn } = useAuth();
+  const navigation = useNavigation();
+
   return (
     <Screen>
       <Header title="Report" subtitle="Create an incident report (UI first)" />
@@ -25,11 +30,25 @@ export default function ReportScreen() {
 
         <View style={{ height: theme.spacing(2) }} />
 
-        <PrimaryButton
-          title="Start Report"
-          onPress={() => {}}
-          icon={<Ionicons name="add" size={18} color="white" />}
-        />
+        {!isLoggedIn ? (
+          <>
+            <Text style={{ color: theme.colors.warn, fontWeight: "800", marginBottom: 10 }}>
+              Login required to start a report.
+            </Text>
+
+            <PrimaryButton
+              title="Go to Login"
+              onPress={() => navigation.navigate("Profile")}
+              icon={<Ionicons name="log-in" size={18} color="white" />}
+            />
+          </>
+        ) : (
+          <PrimaryButton
+            title="Start Report"
+            onPress={() => {}}
+            icon={<Ionicons name="add" size={18} color="white" />}
+          />
+        )}
       </Card>
     </Screen>
   );
