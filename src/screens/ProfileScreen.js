@@ -49,7 +49,7 @@ export default function ProfileScreen() {
         left={<Ionicons name="person" size={20} color={theme.colors.primary3} />}
       />
 
-      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginBottom: theme.spacing(2) }}>
         <Chip icon="lock-closed" text="Secure login" />
         <Chip icon="shield-checkmark" text="Roles" />
         <Chip icon="sparkles" text="Verification" />

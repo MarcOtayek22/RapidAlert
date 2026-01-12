@@ -27,7 +27,11 @@ export default function PrimaryButton({ title, onPress, icon, style, disabled })
     >
       <Animated.View
         style={[
-          { transform: [{ scale }], borderRadius: theme.radius.xl, overflow: "hidden" },
+          {
+            transform: [{ scale }],
+            borderRadius: theme.radius.xl,
+            overflow: "hidden",
+          },
           style,
         ]}
       >

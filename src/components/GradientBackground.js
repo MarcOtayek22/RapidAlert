@@ -26,6 +26,7 @@ export default function GradientBackground({ children }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.bg0 }}>
+      {/* Base gradient */}
       <LinearGradient
         colors={[theme.colors.bg0, theme.colors.bg1, theme.colors.bg0]}
         start={{ x: 0, y: 0 }}
@@ -33,6 +34,7 @@ export default function GradientBackground({ children }) {
         style={{ ...StyleSheet.absoluteFillObject }}
       />
 
+      {/* Subtle red tint (corner wash, not bubbles) */}
       <LinearGradient
         colors={["rgba(255,59,48,0.14)", "rgba(255,59,48,0.00)"]}
         start={{ x: 0.1, y: 0 }}
@@ -40,6 +42,7 @@ export default function GradientBackground({ children }) {
         style={{ ...StyleSheet.absoluteFillObject }}
       />
 
+      {/* Grid overlay */}
       <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, opacity: 0.12 }}>
         {Array.from({ length: 18 }).map((_, i) => (
           <View
@@ -69,6 +72,7 @@ export default function GradientBackground({ children }) {
         ))}
       </View>
 
+      {/* Light sweep */}
       <Animated.View
         pointerEvents="none"
         style={{
@@ -89,11 +93,18 @@ export default function GradientBackground({ children }) {
         />
       </Animated.View>
 
+      {/* Content fade in */}
       <Animated.View style={{ flex: 1, opacity: fade }}>{children}</Animated.View>
     </View>
   );
 }
 
 const StyleSheet = {
-  absoluteFillObject: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
+  absoluteFillObject: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+  },
 };

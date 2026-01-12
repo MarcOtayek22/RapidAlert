@@ -27,7 +27,7 @@ export default function CommunityScreen() {
   }, [tab]);
 
   const TabButton = ({ label, emoji, icon }) => {
-    const active = tab === label; // logic unchanged
+    const active = tab === label; // ✅ logic unchanged (label still Needs/Offers)
     return (
       <TouchableOpacity
         onPress={() => setTab(label)}
@@ -45,8 +45,18 @@ export default function CommunityScreen() {
         }}
       >
         <Text style={{ fontSize: 14 }}>{emoji}</Text>
-        <Ionicons name={icon} size={16} color={active ? theme.colors.primary3 : theme.colors.muted} />
-        <Text style={{ color: active ? theme.colors.text : theme.colors.muted, fontWeight: "900", fontSize: 13 }}>
+        <Ionicons
+          name={icon}
+          size={16}
+          color={active ? theme.colors.primary3 : theme.colors.muted}
+        />
+        <Text
+          style={{
+            color: active ? theme.colors.text : theme.colors.muted,
+            fontWeight: "900",
+            fontSize: 13,
+          }}
+        >
           {label}
         </Text>
       </TouchableOpacity>
@@ -56,12 +66,12 @@ export default function CommunityScreen() {
   return (
     <Screen>
       <Header
-        title="🤝 Community Support"
+        title="🤝 Community"
         subtitle="Needs / Offers (Phase 1 placeholder)"
         left={<Ionicons name="people" size={20} color={theme.colors.primary3} />}
       />
 
-      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginBottom: theme.spacing(2) }}>
         <Chip icon="chatbubbles" text="Connect" />
         <Chip icon="medkit" text="Help" tone="success" />
         <Chip icon="share-social" text="Share" />
@@ -103,7 +113,7 @@ export default function CommunityScreen() {
               style={{ marginTop: 2 }}
             />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.colors.text, fontWeight: "800" }}>{it.title}</Text>
+              <Text style={{ color: theme.colors.text, fontWeight: "900" }}>{it.title}</Text>
               <Text style={{ color: theme.colors.faint, marginTop: 4, fontSize: 12 }}>
                 Tap actions + posting will come later.
               </Text>

@@ -22,8 +22,8 @@ export default function SosScreen() {
         left={<Ionicons name="warning" size={20} color={theme.colors.primary3} />}
       />
 
-      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-        <Chip icon="hand-left" text="Hold-to-send" tone="warn" />
+      <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginBottom: theme.spacing(2) }}>
+        <Chip icon="hand-left" text="Hold to send" tone="warn" />
         <Chip icon="navigate-circle" text="Send location" />
         <Chip icon="call" text="Emergency flow" tone="danger" />
       </View>
@@ -43,7 +43,7 @@ export default function SosScreen() {
 
         {!isLoggedIn ? (
           <>
-            <Text style={{ color: theme.colors.warn, fontWeight: "800", marginBottom: 10 }}>
+            <Text style={{ color: theme.colors.warn, fontWeight: "900", marginBottom: 10 }}>
               🔒 Login required to use SOS.
             </Text>
 

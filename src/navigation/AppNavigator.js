@@ -19,8 +19,18 @@ function TabIcon({ name, color, focused }) {
 
   useEffect(() => {
     Animated.parallel([
-      Animated.spring(scale, { toValue: focused ? 1.12 : 1, friction: 7, tension: 160, useNativeDriver: true }),
-      Animated.spring(lift, { toValue: focused ? -2 : 0, friction: 7, tension: 160, useNativeDriver: true }),
+      Animated.spring(scale, {
+        toValue: focused ? 1.12 : 1,
+        friction: 7,
+        tension: 160,
+        useNativeDriver: true,
+      }),
+      Animated.spring(lift, {
+        toValue: focused ? -2 : 0,
+        friction: 7,
+        tension: 160,
+        useNativeDriver: true,
+      }),
     ]).start();
   }, [focused, scale, lift]);
 
@@ -87,7 +97,8 @@ export default function AppNavigator() {
             Community: focused ? "people" : "people-outline",
             Profile: focused ? "person" : "person-outline",
           };
-          return <TabIcon name={icons[route.name] || "ellipse-outline"} color={color} focused={focused} />;
+          const name = icons[route.name] || "ellipse-outline";
+          return <TabIcon name={name} color={color} focused={focused} />;
         },
       })}
     >

@@ -1,5 +1,5 @@
 import React from "react";
-import { View, ScrollView } from "react-native";
+import { ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import GradientBackground from "./GradientBackground";
 import { theme } from "../theme/theme";
@@ -27,3 +27,4 @@ export default function Screen({ children, style, noPadding }) {
     </GradientBackground>
   );
 }
+
