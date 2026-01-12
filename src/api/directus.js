@@ -1,9 +1,24 @@
+// src/api/directus.js
 import * as SecureStore from "expo-secure-store";
 
 const TOKEN_KEY = "rapidalert_token";
-export const DIRECTUS_URL = process.env.EXPO_PUBLIC_DIRECTUS_URL;
 
-async function request(path, { method = "GET", body, auth = true, timeoutMs = 8000 } = {}) {
+// ✅ Use env if available, otherwise fallback to Railway URL
+export const DIRECTUS_URL =
+  process.env.EXPO_PUBLIC_DIRECTUS_URL ||
+  "https://rapidalertservice-production.up.railway.app";
+
+/**
+ * Generic JSON request helper
+ */
+async function request(
+  path,
+  { method = "GET", body, auth = true, timeoutMs = 12000 } = {}
+) {
+  if (!DIRECTUS_URL) {
+    throw new Error("DIRECTUS_URL is missing. Check EXPO_PUBLIC_DIRECTUS_URL in .env");
+  }
+
   const headers = { "Content-Type": "application/json" };
 
   if (auth) {
@@ -12,7 +27,7 @@ async function request(path, { method = "GET", body, auth = true, timeoutMs = 80
   }
 
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(`${DIRECTUS_URL}${path}`, {
@@ -34,9 +49,13 @@ async function request(path, { method = "GET", body, auth = true, timeoutMs = 80
     console.log("Directus request failed:", `${DIRECTUS_URL}${path}`, e?.message);
     throw e;
   } finally {
-    clearTimeout(t);
+    clearTimeout(timer);
   }
 }
+
+/* =========================
+   Auth (Phase 3)
+   ========================= */
 
 export async function login(email, password) {
   const r = await request("/auth/login", {
@@ -52,15 +71,66 @@ export async function login(email, password) {
   return token;
 }
 
-// ✅ HERE is the important part:
-// ask Directus to include role.name, so role is not a UUID
 export async function getMe() {
   const r = await request(
-    "/users/me?fields=id,email,first_name,last_name,role.id,role.name"
+    "/users/me?fields=id,email,first_name,last_name,role.id,role.name,verified_badge,trust_score"
   );
   return r?.data;
 }
 
 export async function logout() {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
+}
+
+/* =========================
+   Phase 4 — Incidents + Files
+   ========================= */
+
+// Upload image/file to Directus Files
+export async function uploadFile({ uri, name = "incident.jpg", type = "image/jpeg" }) {
+  if (!DIRECTUS_URL) {
+    throw new Error("DIRECTUS_URL is missing. Check EXPO_PUBLIC_DIRECTUS_URL in .env");
+  }
+
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+  if (!token) throw new Error("Not logged in");
+
+  const form = new FormData();
+  form.append("file", { uri, name, type });
+
+  const res = await fetch(`${DIRECTUS_URL}/files`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // IMPORTANT: don't set Content-Type manually for FormData in RN
+    },
+    body: form,
+  });
+
+  const json = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg = json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+
+  return json?.data; // { id, ... }
+}
+
+// Create an incident
+export async function createIncident(payload) {
+  const r = await request("/items/incidents", {
+    method: "POST",
+    body: payload,
+    auth: true,
+  });
+  return r?.data;
+}
+
+// List latest incidents (for Map feed / markers)
+export async function listIncidents() {
+  const r = await request(
+    "/items/incidents?sort=-date_created&limit=50&fields=id,category,description,status,score,date_created,latitude,longitude,media,reported_by"
+  );
+  return r?.data || [];
 }
