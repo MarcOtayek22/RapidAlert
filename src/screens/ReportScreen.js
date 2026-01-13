@@ -30,7 +30,13 @@ export default function ReportScreen() {
   const [error, setError] = useState(null);
 
   const canSubmit = useMemo(() => {
-    return isLoggedIn && !!me?.id && !!coords && description.trim().length >= 5 && !loading;
+    return (
+      isLoggedIn &&
+      !!me?.id &&
+      !!coords &&
+      description.trim().length >= 5 &&
+      !loading
+    );
   }, [isLoggedIn, me?.id, coords, description, loading]);
 
   async function getGps() {
@@ -74,15 +80,15 @@ export default function ReportScreen() {
     setError(null);
 
     try {
-      let fileId = null;
+      let uploadedFileId = null;
 
-      // 1) Upload file to directus_files
+      // 1) upload file (optional)
       if (media?.uri) {
         const uploaded = await uploadFile(media);
-        fileId = uploaded?.id || null;
+        uploadedFileId = uploaded?.id || null;
       }
 
-      // 2) Create incident and LINK the uploaded file using media_file
+      // 2) build payload
       const payload = {
         category,
         description: description.trim(),
@@ -92,20 +98,21 @@ export default function ReportScreen() {
         longitude: coords.lng,
         reported_by: me.id,
 
-        // ✅ THIS is the correct linking for your “File” field
-        // If fileId is null, Directus will store null (fine)
-        media_file: fileId,
+        // ✅ Many-to-Many media field (0 or 1 file)
+        ...(uploadedFileId
+          ? { media_file: uploadedFileId }: {}),
       };
 
+      // 3) create incident
       await createIncident(payload);
 
+      // 4) reset UI
       setStarted(false);
       setCategory(CATEGORIES[0]);
       setDescription("");
       setCoords(null);
       setMedia(null);
 
-      // trigger map refresh
       navigation.navigate("Map", { refresh: Date.now() });
     } catch (e) {
       setError(e?.message || "Failed to submit incident.");
@@ -219,7 +226,10 @@ export default function ReportScreen() {
 
             {media?.uri ? (
               <View style={{ marginTop: 12 }}>
-                <Image source={{ uri: media.uri }} style={{ width: "100%", height: 180, borderRadius: 16 }} />
+                <Image
+                  source={{ uri: media.uri }}
+                  style={{ width: "100%", height: 180, borderRadius: 16 }}
+                />
               </View>
             ) : null}
 

@@ -1,11 +1,9 @@
-// src/navigation/RootNavigator.js
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import AppNavigator from "./AppNavigator";
-
 import IncidentDetailsScreen from "../screens/IncidentDetailsScreen";
 import VolunteerApplyScreen from "../screens/VolunteerApplyScreen";
-import IncidentListAtPointScreen from "../screens/IncidentListAtPointScreen";
+import LocationDetailsScreen from "../screens/LocationDetailsScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -14,7 +12,7 @@ export default function RootNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Tabs" component={AppNavigator} />
       <Stack.Screen name="IncidentDetails" component={IncidentDetailsScreen} />
-      <Stack.Screen name="IncidentListAtPoint" component={IncidentListAtPointScreen} />
+      <Stack.Screen name="LocationDetails" component={LocationDetailsScreen} />
       <Stack.Screen name="VolunteerApply" component={VolunteerApplyScreen} />
     </Stack.Navigator>
   );
