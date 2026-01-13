@@ -127,10 +127,72 @@ export async function createIncident(payload) {
   return r?.data;
 }
 
-// List latest incidents (for Map feed / markers)
+/**
+ * ✅ List latest incidents (Map feed / markers)
+ * IMPORTANT:
+ * - Include BOTH "media" (your old field) and "media_file" (your new File field)
+ * - Include "media_file.id" so the app can build: `${DIRECTUS_URL}/assets/<id>`
+ */
 export async function listIncidents() {
+  const fields = [
+    "id",
+    "category",
+    "description",
+    "status",
+    "score",
+    "date_created",
+    "latitude",
+    "longitude",
+    "reported_by",
+    "media",
+    "media_file",
+    "media_file.id",
+    "media_file.filename_download",
+  ].join(",");
+
   const r = await request(
-    "/items/incidents?sort=-date_created&limit=50&fields=id,category,description,status,score,date_created,latitude,longitude,media,reported_by"
+    `/items/incidents?sort=-date_created&limit=200&fields=${encodeURIComponent(fields)}`
   );
+
   return r?.data || [];
+}
+
+/**
+ * ✅ Get one incident by id (for IncidentDetails)
+ * Same fields as listIncidents, but for a single record
+ */
+export async function getIncidentById(id) {
+  if (!id && id !== 0) throw new Error("Missing incident id");
+
+  const fields = [
+    "id",
+    "category",
+    "description",
+    "status",
+    "score",
+    "date_created",
+    "latitude",
+    "longitude",
+    "reported_by",
+    "media",
+    "media_file",
+    "media_file.id",
+    "media_file.filename_download",
+  ].join(",");
+
+  const r = await request(
+    `/items/incidents/${encodeURIComponent(String(id))}?fields=${encodeURIComponent(fields)}`
+  );
+
+  return r?.data || null;
+}
+
+/**
+ * Helper: build a URL to display a Directus file in <Image/>
+ * Works when files are public.
+ * If your server uses FILES_PRIVATE=true, then you'll need a tokenized URL.
+ */
+export async function buildAssetUrl(fileId) {
+  if (!fileId) return null;
+  return `${DIRECTUS_URL.replace(/\/$/, "")}/assets/${fileId}`;
 }

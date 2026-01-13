@@ -30,13 +30,7 @@ export default function ReportScreen() {
   const [error, setError] = useState(null);
 
   const canSubmit = useMemo(() => {
-    return (
-      isLoggedIn &&
-      !!me?.id &&
-      !!coords &&
-      description.trim().length >= 5 &&
-      !loading
-    );
+    return isLoggedIn && !!me?.id && !!coords && description.trim().length >= 5 && !loading;
   }, [isLoggedIn, me?.id, coords, description, loading]);
 
   async function getGps() {
@@ -82,12 +76,13 @@ export default function ReportScreen() {
     try {
       let fileId = null;
 
+      // 1) Upload file to directus_files
       if (media?.uri) {
         const uploaded = await uploadFile(media);
         fileId = uploaded?.id || null;
       }
 
-      // ✅ YOUR Directus schema (reported_by is REQUIRED)
+      // 2) Create incident and LINK the uploaded file using media_file
       const payload = {
         category,
         description: description.trim(),
@@ -96,7 +91,10 @@ export default function ReportScreen() {
         latitude: coords.lat,
         longitude: coords.lng,
         reported_by: me.id,
-        media: fileId,
+
+        // ✅ THIS is the correct linking for your “File” field
+        // If fileId is null, Directus will store null (fine)
+        media_file: fileId,
       };
 
       await createIncident(payload);
@@ -107,6 +105,7 @@ export default function ReportScreen() {
       setCoords(null);
       setMedia(null);
 
+      // trigger map refresh
       navigation.navigate("Map", { refresh: Date.now() });
     } catch (e) {
       setError(e?.message || "Failed to submit incident.");
@@ -220,10 +219,7 @@ export default function ReportScreen() {
 
             {media?.uri ? (
               <View style={{ marginTop: 12 }}>
-                <Image
-                  source={{ uri: media.uri }}
-                  style={{ width: "100%", height: 180, borderRadius: 16 }}
-                />
+                <Image source={{ uri: media.uri }} style={{ width: "100%", height: 180, borderRadius: 16 }} />
               </View>
             ) : null}
 

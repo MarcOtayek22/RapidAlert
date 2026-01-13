@@ -1,3 +1,4 @@
+// src/auth/AuthContext.js
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { getMe, login as apiLogin, logout as apiLogout } from "../api/directus";
 
@@ -34,7 +35,6 @@ export function AuthProvider({ children }) {
     setMe(null);
   }
 
-  // ✅ Role is now a readable string ("user" / "volunteer")
   const roleName = me?.role?.name || "guest";
 
   const value = useMemo(
@@ -56,4 +56,3 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
- 
