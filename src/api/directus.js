@@ -10,9 +10,16 @@ async function request(path, { method = "GET", body, auth = true, timeoutMs = 12
   const headers = { "Content-Type": "application/json" };
 
   if (auth) {
-    const token = await SecureStore.getItemAsync(TOKEN_KEY);
-    if (token) headers.Authorization = `Bearer ${token}`;
+  const token = await SecureStore.getItemAsync(TOKEN_KEY);
+
+  // ✅ if auth is required, DO NOT call Directus without a token
+  if (!token) {
+    throw new Error("Not logged in");
   }
+
+  headers.Authorization = `Bearer ${token}`;
+}
+
 
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
@@ -124,5 +131,59 @@ export async function getIncident(id) {
     "media_file.id,media_file.filename_download";
 
   const r = await request(`/items/incidents/${id}?fields=${encodeURIComponent(fields)}`);
+  return r?.data;
+}
+
+// --- Phase 6: Votes ---
+
+// --- Phase 6: Votes ---
+
+export async function getMyVote(incidentId) {
+  if (!incidentId) return null;
+
+  const params = new URLSearchParams({
+    "filter[incident][_eq]": String(incidentId),
+    limit: "1",
+    fields: "id,vote",
+  });
+
+  const r = await request(
+    `/items/incident_votes?${params.toString()}`,
+    { auth: true }
+  );
+
+  return r?.data?.[0] || null;
+}
+
+
+export async function upsertVote({ incidentId, userId, vote }) {
+  if (!incidentId || !userId) throw new Error("Missing incidentId or userId");
+  if (!["up", "down"].includes(vote)) throw new Error("Vote must be 'up' or 'down'");
+
+  const existing = await getMyVote(incidentId, userId);
+
+  if (existing?.id) {
+    const r = await request(
+  `/items/incident_votes/${existing.id}?fields=id,vote`,
+  {
+    method: "PATCH",
+    body: { vote },
+    auth: true,
+  }
+);
+
+    return r?.data;
+  }
+
+  const r = await request(
+  `/items/incident_votes?fields=id,vote`,
+  {
+    method: "POST",
+    body: { incident: incidentId, user: userId, vote },
+    auth: true,
+  }
+);
+
+
   return r?.data;
 }
