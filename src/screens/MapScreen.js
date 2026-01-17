@@ -1,8 +1,9 @@
+// src/screens/MapScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, ActivityIndicator, Pressable } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
-import { useIsFocused, useNavigation, useRoute } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 
 import Screen from "../components/Screen";
 import Header from "../components/Header";
@@ -14,103 +15,66 @@ import { listIncidents } from "../api/directus";
 const STATUS_OPTIONS = ["all", "unverified", "verified", "disputed", "false"];
 const CATEGORY_OPTIONS = ["all", "Fire", "Road Closure", "Explosion", "Medical", "Other"];
 
-function pinColorForStatus(status) {
-  if (status === "verified") return "green";
-  if (status === "false") return "red";
-  if (status === "disputed") return "orange";
-  return "purple";
+// ✅ status → marker color (per your request)
+function statusColor(status) {
+  const s = (status || "").toLowerCase();
+  if (s === "verified") return theme.colors.success; // green
+  if (s === "unverified") return theme.colors.primary2; // purple
+  if (s === "disputed") return theme.colors.warn; // yellow
+  if (s === "false") return "rgba(255,255,255,0.35)"; // gray
+  return theme.colors.primary2;
 }
 
+// ✅ for grouped markers: choose the dominant status at that location
+function dominantStatus(items = []) {
+  const counts = {};
+  for (const it of items) {
+    const s = (it?.status || "unknown").toLowerCase();
+    counts[s] = (counts[s] || 0) + 1;
+  }
+  let best = "unknown";
+  let bestCount = -1;
+  for (const [s, c] of Object.entries(counts)) {
+    if (c > bestCount) {
+      best = s;
+      bestCount = c;
+    }
+  }
+  return best;
+}
+
+// ✅ rounds so “same place” groups into one marker
 function groupKey(lat, lng) {
-  // round so “same place” is treated as same marker
   const r = (n) => Number(n).toFixed(4);
   return `${r(lat)}|${r(lng)}`;
 }
 
 export default function MapScreen() {
   const navigation = useNavigation();
-  const route = useRoute();
   const isFocused = useIsFocused();
 
-  const [myPos, setMyPos] = useState(null);
-  const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
+  const [incidents, setIncidents] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
-  const refreshKey = route?.params?.refresh;
+  const [myPos, setMyPos] = useState(null);
 
-  const region = useMemo(() => {
-    if (!myPos) {
-      return {
-        latitude: 33.8938,
-        longitude: 35.5018,
-        latitudeDelta: 0.25,
-        longitudeDelta: 0.25,
-      };
-    }
-    return {
-      latitude: myPos.latitude,
-      longitude: myPos.longitude,
-      latitudeDelta: 0.08,
-      longitudeDelta: 0.08,
-    };
-  }, [myPos]);
-
-  const filtered = useMemo(() => {
-    return (incidents || [])
-      .filter((it) => (statusFilter === "all" ? true : it.status === statusFilter))
-      .filter((it) => (categoryFilter === "all" ? true : it.category === categoryFilter));
-  }, [incidents, statusFilter, categoryFilter]);
-
-  // ✅ GROUP BY LOCATION
-  const grouped = useMemo(() => {
-    const map = new Map();
-
-    for (const it of filtered) {
-      const key = groupKey(it.latitude, it.longitude);
-      const arr = map.get(key) || [];
-      arr.push(it);
-      map.set(key, arr);
-    }
-
-    return Array.from(map.entries()).map(([key, items]) => {
-      const first = items[0];
-      return {
-        key,
-        latitude: first.latitude,
-        longitude: first.longitude,
-        items,
-      };
-    });
-  }, [filtered]);
-
-  async function load() {
+  async function loadIncidents() {
     setLoading(true);
     setErr(null);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        const pos = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        setMyPos({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-        });
-      }
-
       const data = await listIncidents();
+      const items = Array.isArray(data) ? data : data?.data ?? [];
 
-      const fixed = (data || [])
-        .map((it) => ({
-          ...it,
-          latitude: typeof it.latitude === "string" ? parseFloat(it.latitude) : it.latitude,
-          longitude: typeof it.longitude === "string" ? parseFloat(it.longitude) : it.longitude,
-        }))
-        .filter((it) => Number.isFinite(it.latitude) && Number.isFinite(it.longitude));
+      // normalize coordinates safely (keeps everything else the same)
+      const fixed = (items || []).map((it) => ({
+        ...it,
+        latitude: typeof it.latitude === "string" ? parseFloat(it.latitude) : it.latitude,
+        longitude: typeof it.longitude === "string" ? parseFloat(it.longitude) : it.longitude,
+      }));
 
       setIncidents(fixed);
     } catch (e) {
@@ -120,89 +84,165 @@ export default function MapScreen() {
     }
   }
 
+  async function loadMyLocation() {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") return;
+      const loc = await Location.getCurrentPositionAsync({});
+      setMyPos({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+    } catch {
+      // ignore
+    }
+  }
+
   useEffect(() => {
-    if (isFocused) load();
-  }, [isFocused, refreshKey]);
+    if (!isFocused) return;
+    loadIncidents();
+    loadMyLocation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFocused]);
+
+  const filtered = useMemo(() => {
+    return (incidents || []).filter((inc) => {
+      const s = (inc?.status || "").toLowerCase();
+      const statusOk = statusFilter === "all" || s === statusFilter;
+
+      const categoryOk =
+        categoryFilter === "all" || (inc?.category || "") === categoryFilter;
+
+      return statusOk && categoryOk;
+    });
+  }, [incidents, statusFilter, categoryFilter]);
+
+  const grouped = useMemo(() => {
+    const map = new Map();
+
+    for (const inc of filtered) {
+      const lat = parseFloat(inc.latitude);
+      const lng = parseFloat(inc.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+
+      const key = groupKey(lat, lng);
+      if (!map.has(key)) {
+        map.set(key, { key, latitude: lat, longitude: lng, items: [] });
+      }
+      map.get(key).items.push(inc);
+    }
+
+    return Array.from(map.values());
+  }, [filtered]);
+
+  const initialRegion = useMemo(() => {
+    if (myPos) {
+      return {
+        latitude: myPos.latitude,
+        longitude: myPos.longitude,
+        latitudeDelta: 0.15,
+        longitudeDelta: 0.15,
+      };
+    }
+    return {
+      latitude: 34.0,
+      longitude: 35.7,
+      latitudeDelta: 0.4,
+      longitudeDelta: 0.4,
+    };
+  }, [myPos]);
 
   return (
     <Screen>
-      <Header title="🗺️ Map" subtitle="Live incidents dashboard" />
+      <Header title="Live incidents dashboard" subtitle="Map + filters" />
 
-      <View style={{ gap: 10, marginBottom: theme.spacing(2) }}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-          <Chip text={`Incidents: ${filtered.length}`} icon="pulse" tone="danger" />
-          <Chip text={`Markers: ${grouped.length}`} icon="navigate" />
-          <Chip text={`Status: ${statusFilter}`} icon="funnel" />
-          <Chip text={`Category: ${categoryFilter}`} icon="pricetag" />
-        </View>
-
-        <Card style={{ padding: 12 }}>
-          <Text style={{ color: theme.colors.faint, fontWeight: "800", marginBottom: 8 }}>
-            Status
-          </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {STATUS_OPTIONS.map((s) => {
-              const active = s === statusFilter;
-              return (
-                <Pressable
-                  key={s}
-                  onPress={() => setStatusFilter(s)}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: active ? "rgba(255,255,255,0.35)" : theme.colors.border,
-                    backgroundColor: active ? "rgba(255,255,255,0.10)" : "transparent",
-                  }}
-                >
-                  <Text style={{ color: theme.colors.text, fontWeight: "800" }}>{s}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <View style={{ height: 12 }} />
-
-          <Text style={{ color: theme.colors.faint, fontWeight: "800", marginBottom: 8 }}>
-            Category
-          </Text>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {CATEGORY_OPTIONS.map((c) => {
-              const active = c === categoryFilter;
-              return (
-                <Pressable
-                  key={c}
-                  onPress={() => setCategoryFilter(c)}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: active ? "rgba(255,255,255,0.35)" : theme.colors.border,
-                    backgroundColor: active ? "rgba(255,255,255,0.10)" : "transparent",
-                  }}
-                >
-                  <Text style={{ color: theme.colors.text, fontWeight: "800" }}>{c}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </Card>
+      {/* ✅ Chip uses ONLY `text` */}
+      <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+        <Chip icon="pulse" text={`Incidents: ${filtered.length}`} tone="danger" />
+        <Chip icon="navigate" text={`Markers: ${grouped.length}`} />
       </View>
 
-      <Card strong style={{ padding: 0, overflow: "hidden" }}>
+      {/* Filters */}
+      <Card style={{ marginBottom: 12 }}>
+        <Text style={{ color: theme.colors.faint, fontWeight: "900", marginBottom: 10 }}>
+          Status
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          {STATUS_OPTIONS.map((s) => {
+            const active = s === statusFilter;
+            return (
+              <Pressable
+                key={s}
+                onPress={() => setStatusFilter(s)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: active ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)",
+                  backgroundColor: active ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
+                }}
+              >
+                <Text
+                  style={{
+                    color: active ? theme.colors.text : theme.colors.muted,
+                    fontWeight: "900",
+                  }}
+                >
+                  {s}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        <View style={{ height: 14 }} />
+
+        <Text style={{ color: theme.colors.faint, fontWeight: "900", marginBottom: 10 }}>
+          Category
+        </Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          {CATEGORY_OPTIONS.map((c) => {
+            const active = c === categoryFilter;
+            return (
+              <Pressable
+                key={c}
+                onPress={() => setCategoryFilter(c)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  borderWidth: 1,
+                  borderColor: active ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)",
+                  backgroundColor: active ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
+                }}
+              >
+                <Text
+                  style={{
+                    color: active ? theme.colors.text : theme.colors.muted,
+                    fontWeight: "900",
+                  }}
+                >
+                  {c}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Card>
+
+      {/* ✅ IMPORTANT FIX: explicit Map height so it never disappears */}
+      <Card strong style={{ overflow: "hidden" }}>
         {loading ? (
-          <View style={{ padding: 18, alignItems: "center", justifyContent: "center" }}>
+          <View style={{ paddingVertical: 18, alignItems: "center" }}>
             <ActivityIndicator />
-            <Text style={{ color: theme.colors.faint, marginTop: 10 }}>Loading…</Text>
+            <Text style={{ color: theme.colors.faint, marginTop: 10 }}>Loading incidents…</Text>
           </View>
         ) : err ? (
-          <View style={{ padding: 18 }}>
-            <Text style={{ color: theme.colors.danger, fontWeight: "800" }}>{err}</Text>
-          </View>
+          <Text style={{ color: theme.colors.danger, fontWeight: "900" }}>{err}</Text>
         ) : (
-          <MapView style={{ width: "100%", height: 420 }} initialRegion={region}>
+          <MapView
+            style={{ height: 420, width: "100%" }}   // ✅ map always visible
+            initialRegion={initialRegion}
+          >
+            {/* current location marker */}
             {myPos ? (
               <Marker
                 coordinate={myPos}
@@ -212,24 +252,64 @@ export default function MapScreen() {
               />
             ) : null}
 
+            {/* grouped incident markers */}
             {grouped.map((g) => {
-              const top = g.items[0];
               const count = g.items.length;
+              const groupStatus = dominantStatus(g.items);
+              const color = statusColor(groupStatus);
 
               return (
                 <Marker
                   key={g.key}
                   coordinate={{ latitude: g.latitude, longitude: g.longitude }}
-                  title={`${count} incident(s) here`}
-                  description={`${top.category || "Incident"} • ${top.status || ""}`}
-                  pinColor={pinColorForStatus(top.status)}
                   onPress={() =>
                     navigation.navigate("LocationDetails", {
                       groupKey: g.key,
                       incidents: g.items,
                     })
                   }
-                />
+                >
+                  {/* custom marker (same structure as before, just colored) */}
+                  <View style={{ alignItems: "center" }}>
+                    <View
+                      style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        borderRadius: 999,
+                        backgroundColor: "rgba(0,0,0,0.55)",
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.18)",
+                        marginBottom: 6,
+                      }}
+                    >
+                      <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 12 }}>
+                        {count} incident(s) here
+                      </Text>
+                    </View>
+
+                    <View
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 999,
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "rgba(255,255,255,0.10)",
+                        borderWidth: 1,
+                        borderColor: "rgba(255,255,255,0.18)",
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: 999,
+                          backgroundColor: color,
+                        }}
+                      />
+                    </View>
+                  </View>
+                </Marker>
               );
             })}
           </MapView>
