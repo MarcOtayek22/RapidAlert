@@ -13,6 +13,9 @@ export function AuthProvider({ children }) {
     try {
       const user = await getMe();
       setMe(user);
+console.log("ME FROM API:", user);
+
+
     } catch (e) {
       console.log("getMe failed:", e?.message);
       setMe(null);
