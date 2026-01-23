@@ -1,23 +1,32 @@
+// src/screens/ProfileScreen.js
 import React, { useMemo, useState } from "react";
 import { Text, View, TextInput } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+
 import Screen from "../components/Screen";
 import Header from "../components/Header";
 import Card from "../components/Card";
 import Chip from "../components/Chip";
 import PrimaryButton from "../components/PrimaryButton";
-import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../theme/theme";
 import { useAuth } from "../auth/AuthContext";
 
 export default function ProfileScreen() {
+  // ✅ Now AuthContext REALLY provides `verified`
   const { me, role, verified, isLoggedIn, login, logout, loading, refresh } = useAuth();
 
-  const [email, setEmail] = useState("test@user.com");
+  // Put your real testing user here
+  const [email, setEmail] = useState("user@rapidalert.com");
   const [password, setPassword] = useState("12345678");
   const [error, setError] = useState(null);
 
   const roleNorm = useMemo(() => String(role || "guest").trim().toLowerCase(), [role]);
-  const verifiedBool = useMemo(() => verified === true || verified === "true" || verified === 1, [verified]);
+
+  // ✅ verified comes directly from context (derived from me.verified_badge)
+  const verifiedBool = useMemo(
+    () => verified === true || verified === "true" || verified === 1,
+    [verified]
+  );
 
   const isGuest = !isLoggedIn || roleNorm === "guest";
   const isUser = roleNorm === "user";
@@ -35,7 +44,6 @@ export default function ProfileScreen() {
     try {
       setError(null);
       await login(email.trim(), password);
-      if (typeof refresh === "function") await refresh();
     } catch (e) {
       setError(e?.message || "Login failed");
     }
@@ -46,7 +54,7 @@ export default function ProfileScreen() {
       <Header
         title="👤 Profile"
         subtitle="Auth + roles + verification"
-        left={<Ionicons name="person" size={20} color={theme.colors.primary3} />}
+        left={<Ionicons name="person" size={20} color={theme.colors.primary} />}
       />
 
       <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", marginBottom: theme.spacing(2) }}>
@@ -60,9 +68,7 @@ export default function ProfileScreen() {
           <Text style={{ color: theme.colors.faint }}>⏳ Loading...</Text>
         ) : isGuest ? (
           <>
-            <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>
-              👋 Guest
-            </Text>
+            <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>👋 Guest</Text>
             <Text style={{ color: theme.colors.faint, marginTop: 8 }}>
               You can browse, but reporting / SOS requires login.
             </Text>
@@ -83,7 +89,7 @@ export default function ProfileScreen() {
                   paddingVertical: 10,
                 }}
               >
-                <Ionicons name="mail" size={18} color={theme.colors.primary3} />
+                <Ionicons name="mail" size={18} color={theme.colors.primary} />
                 <TextInput
                   value={email}
                   onChangeText={setEmail}
@@ -107,7 +113,7 @@ export default function ProfileScreen() {
                   paddingVertical: 10,
                 }}
               >
-                <Ionicons name="key" size={18} color={theme.colors.primary3} />
+                <Ionicons name="key" size={18} color={theme.colors.primary} />
                 <TextInput
                   value={password}
                   onChangeText={setPassword}
@@ -160,9 +166,7 @@ export default function ProfileScreen() {
 
                 <PrimaryButton
                   title="Apply to be Volunteer"
-                  onPress={() => {
-                    console.log("Apply pressed");
-                  }}
+                  onPress={() => console.log("Apply pressed")}
                   icon={<Ionicons name="shield-checkmark" size={18} color="white" />}
                 />
                 <View style={{ height: theme.spacing(2) }} />
@@ -216,7 +220,7 @@ export default function ProfileScreen() {
         <Text style={{ color: theme.colors.faint }}>role(raw): {String(role)}</Text>
         <Text style={{ color: theme.colors.faint }}>role(norm): {String(roleNorm)}</Text>
         <Text style={{ color: theme.colors.faint }}>verified(raw): {String(verified)}</Text>
-        <Text style={{ color: theme.colors.faint }}>verified(bool): {String(verifiedBool)}</Text>
+        <Text style={{ color: theme.colors.faint }}>verified_badge(from me): {String(me?.verified_badge)}</Text>
       </Card>
     </Screen>
   );

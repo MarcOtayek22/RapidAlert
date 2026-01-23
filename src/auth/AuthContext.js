@@ -12,10 +12,11 @@ export function AuthProvider({ children }) {
     setLoading(true);
     try {
       const user = await getMe();
+
+      // ✅ keep this log (you can remove later)
+      console.log("ME FROM API:", user);
+
       setMe(user);
-console.log("ME FROM API:", user);
-
-
     } catch (e) {
       console.log("getMe failed:", e?.message);
       setMe(null);
@@ -39,18 +40,20 @@ console.log("ME FROM API:", user);
   }
 
   const roleName = me?.role?.name || "guest";
+  const verified = me?.verified_badge === true || me?.verified_badge === 1 || me?.verified_badge === "true";
 
   const value = useMemo(
     () => ({
       loading,
       me,
       role: roleName,
+      verified, // ✅ expose verified explicitly
       isLoggedIn: !!me,
       login,
       logout,
       refresh,
     }),
-    [loading, me, roleName]
+    [loading, me, roleName, verified]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
