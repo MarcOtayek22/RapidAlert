@@ -7,6 +7,10 @@ export const DIRECTUS_URL =
   process.env.EXPO_PUBLIC_DIRECTUS_URL ||
   "https://rapidalertservice-production.up.railway.app";
 
+/* =========================
+   Core request helper
+========================= */
+
 async function request(
   path,
   { method = "GET", body, auth = true, timeoutMs = 12000 } = {}
@@ -33,8 +37,7 @@ async function request(
     const json = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      const msg =
-        json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
+      const msg = json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
@@ -101,21 +104,24 @@ export async function uploadFile({
 
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg =
-      json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
+    const msg = json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
     throw new Error(msg);
   }
-  return json?.data;
+  return json?.data; // { id, ... }
 }
 
 /* =========================
    Incidents
 ========================= */
 
-export async function createIncident(payload) {
-  const r = await request("/items/incidents", {
-    method: "POST",
-    body: payload,
+// IMPORTANT: This PATCH is what updates incidents.score/status in DB.
+// If your Directus policies block update on incidents, this will throw.
+export async function patchIncident(incidentId, data) {
+  if (!incidentId) throw new Error("Missing incidentId");
+
+  const r = await request(`/items/incidents/${incidentId}?fields=id,score,status,media_file`, {
+    method: "PATCH",
+    body: data,
     auth: true,
   });
   return r?.data;
@@ -127,9 +133,7 @@ export async function listIncidents() {
     "media_file.id,media_file.filename_download";
 
   const r = await request(
-    `/items/incidents?sort=-date_created&limit=200&fields=${encodeURIComponent(
-      fields
-    )}`
+    `/items/incidents?sort=-date_created&limit=200&fields=${encodeURIComponent(fields)}`
   );
   return r?.data || [];
 }
@@ -139,75 +143,14 @@ export async function getIncident(id) {
     "id,category,description,status,score,date_created,latitude,longitude,reported_by," +
     "media_file.id,media_file.filename_download";
 
-  const r = await request(
-    `/items/incidents/${id}?fields=${encodeURIComponent(fields)}`
-  );
-  return r?.data;
-}
-
-export async function patchIncident(incidentId, data) {
-  if (!incidentId) throw new Error("Missing incidentId");
-
-  // IMPORTANT: if your Directus policy blocks update, this will throw.
-  // We want that error visible to you, not silent.
-  const r = await request(`/items/incidents/${incidentId}`, {
-    method: "PATCH",
-    body: data,
-    auth: true,
-  });
-  return r?.data;
-}
-
-/* =========================
-   Phase 6: Votes (Part 1+2)
-========================= */
-
-export async function getMyVote(incidentId, userId) {
-  if (!incidentId || !userId) return null;
-
-  const params = new URLSearchParams({
-    "filter[incident][_eq]": String(incidentId),
-    "filter[user][_eq]": String(userId),
-    limit: "1",
-    fields: "id,vote",
-  });
-
-  const r = await request(`/items/incident_votes?${params.toString()}`, {
-    auth: true,
-  });
-
-  return r?.data?.[0] || null;
-}
-
-export async function upsertVote({ incidentId, userId, vote }) {
-  if (!incidentId || !userId) throw new Error("Missing incidentId or userId");
-  if (!["up", "down"].includes(vote))
-    throw new Error("Vote must be 'up' or 'down'");
-
-  const existing = await getMyVote(incidentId, userId);
-
-  if (existing?.id) {
-    const r = await request(`/items/incident_votes/${existing.id}?fields=id,vote`, {
-      method: "PATCH",
-      body: { vote },
-      auth: true,
-    });
-    return r?.data;
-  }
-
-  const r = await request(`/items/incident_votes?fields=id,vote`, {
-    method: "POST",
-    body: { incident: incidentId, user: userId, vote },
-    auth: true,
-  });
-
+  const r = await request(`/items/incidents/${id}?fields=${encodeURIComponent(fields)}`);
   return r?.data;
 }
 
 /* =========================================================
-   ✅ Phase 6 Part 3 + Part 4 (WORKING)
+   ✅ Phase 6 Part 3 + Part 4
    - read all votes for incident
-   - compute score (with verified volunteer weight + media bonus)
+   - compute score (verified volunteer weight + media bonus)
    - patch incidents.score and incidents.status
 ========================================================= */
 
@@ -225,17 +168,13 @@ export async function listIncidentVotes(incidentId) {
     "user.id,user.verified_badge,user.role.id,user.role.name," +
     "user_id.id,user_id.verified_badge,user_id.role.id,user_id.role.name";
 
-  // Your schema uses "incident" in upsertVote, so this is the main filter:
   const params = new URLSearchParams({
     "filter[incident][_eq]": String(incidentId),
     limit: "500",
     fields,
   });
 
-  const r = await request(`/items/incident_votes?${params.toString()}`, {
-    auth: true,
-  });
-
+  const r = await request(`/items/incident_votes?${params.toString()}`, { auth: true });
   return r?.data || [];
 }
 
@@ -255,8 +194,7 @@ export function computeIncidentScore({ votes = [], hasMedia = false }) {
     const user = v?.user || v?.user_id;
 
     const roleName = (user?.role?.name || "").toLowerCase();
-    const verified =
-      user?.verified_badge === true || user?.verified_badge === 1;
+    const verified = user?.verified_badge === true || user?.verified_badge === 1;
 
     const isVerifiedVolunteer = roleName === "volunteer" && verified;
     const weight = isVerifiedVolunteer ? 2 : 1;
@@ -276,7 +214,7 @@ export function computeIncidentScore({ votes = [], hasMedia = false }) {
  *  else        => unverified
  */
 export function scoreToStatus(score) {
-  if (score >= 3) return "verified";
+  if (score >= 4) return "verified";
   if (score <= -3) return "false";
   return "unverified";
 }
@@ -302,7 +240,6 @@ export async function recomputeIncidentScoreAndStatus(incident) {
   const score = computeIncidentScore({ votes, hasMedia });
   const status = scoreToStatus(score);
 
-  // Patch to DB (this is what changes score in map/list/details)
   const updated = await patchIncident(incidentId, { score, status });
 
   return {
@@ -310,4 +247,85 @@ export async function recomputeIncidentScoreAndStatus(incident) {
     status: updated?.status ?? status,
     votesCount: votes.length,
   };
+}
+
+/* =========================
+   Phase 6: Votes (Part 1+2) + ✅ recompute hook
+========================= */
+
+export async function getMyVote(incidentId, userId) {
+  if (!incidentId || !userId) return null;
+
+  const params = new URLSearchParams({
+    "filter[incident][_eq]": String(incidentId),
+    "filter[user][_eq]": String(userId),
+    limit: "1",
+    fields: "id,vote",
+  });
+
+  const r = await request(`/items/incident_votes?${params.toString()}`, { auth: true });
+  return r?.data?.[0] || null;
+}
+
+/**
+ * Upsert vote AND recompute incident score/status.
+ * This guarantees the UI sees updated score after voting.
+ */
+export async function upsertVote({ incidentId, userId, vote }) {
+  if (!incidentId || !userId) throw new Error("Missing incidentId or userId");
+  if (!["up", "down"].includes(vote)) throw new Error("Vote must be 'up' or 'down'");
+
+  const existing = await getMyVote(incidentId, userId);
+
+  let savedVote;
+
+  if (existing?.id) {
+    const r = await request(`/items/incident_votes/${existing.id}?fields=id,vote`, {
+      method: "PATCH",
+      body: { vote },
+      auth: true,
+    });
+    savedVote = r?.data;
+  } else {
+    const r = await request(`/items/incident_votes?fields=id,vote`, {
+      method: "POST",
+      body: { incident: incidentId, user: userId, vote },
+      auth: true,
+    });
+    savedVote = r?.data;
+  }
+
+  // ✅ Now recompute score/status in DB (includes media bonus too)
+  await recomputeIncidentScoreAndStatus({ id: incidentId });
+
+  return savedVote;
+}
+
+/* =========================
+   ✅ Create Incident with media bonus applied immediately
+   - users can't edit media later, so do it here.
+========================= */
+
+export async function createIncident(payload) {
+  // Create incident and ask for fields we need
+  const r = await request("/items/incidents?fields=id,media_file,score,status", {
+    method: "POST",
+    body: payload,
+    auth: true,
+  });
+
+  const created = r?.data;
+
+  // ✅ Immediately apply media bonus and status based on score
+  // (No votes yet, so score will be 2 if media exists, else 0)
+  if (created?.id) {
+    try {
+      await recomputeIncidentScoreAndStatus(created);
+    } catch (e) {
+      // Do not block creation if policy prevents patching
+      console.log("Recompute after create failed:", e?.message);
+    }
+  }
+
+  return created;
 }
