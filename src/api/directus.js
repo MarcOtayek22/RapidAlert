@@ -7,10 +7,9 @@ export const DIRECTUS_URL =
   process.env.EXPO_PUBLIC_DIRECTUS_URL ||
   "https://rapidalertservice-production.up.railway.app";
 
-/* =========================
+/* =========================================================
    Core request helper
-========================= */
-
+========================================================= */
 async function request(
   path,
   { method = "GET", body, auth = true, timeoutMs = 12000 } = {}
@@ -37,7 +36,8 @@ async function request(
     const json = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      const msg = json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
+      const msg =
+        json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
@@ -52,10 +52,9 @@ export function fileAssetUrl(fileId) {
   return `${DIRECTUS_URL}/assets/${fileId}`;
 }
 
-/* =========================
+/* =========================================================
    Auth
-========================= */
-
+========================================================= */
 export async function login(email, password) {
   const r = await request("/auth/login", {
     method: "POST",
@@ -81,10 +80,9 @@ export async function logout() {
   await SecureStore.deleteItemAsync(TOKEN_KEY);
 }
 
-/* =========================
+/* =========================================================
    Files
-========================= */
-
+========================================================= */
 export async function uploadFile({
   uri,
   name = "incident.jpg",
@@ -104,69 +102,100 @@ export async function uploadFile({
 
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
+    const msg =
+      json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
     throw new Error(msg);
   }
   return json?.data; // { id, ... }
 }
 
-/* =========================
-   Incidents
-========================= */
-
-// IMPORTANT: This PATCH is what updates incidents.score/status in DB.
-// If your Directus policies block update on incidents, this will throw.
-export async function patchIncident(incidentId, data) {
-  if (!incidentId) throw new Error("Missing incidentId");
-
-  const r = await request(`/items/incidents/${incidentId}?fields=id,score,status,media_file`, {
-    method: "PATCH",
-    body: data,
-    auth: true,
-  });
-  return r?.data;
-}
-
+/* =========================================================
+   Incidents (CRUD)
+========================================================= */
 export async function listIncidents() {
   const fields =
     "id,category,description,status,score,date_created,latitude,longitude," +
     "media_file.id,media_file.filename_download";
 
   const r = await request(
-    `/items/incidents?sort=-date_created&limit=200&fields=${encodeURIComponent(fields)}`
+    `/items/incidents?sort=-date_created&limit=200&fields=${encodeURIComponent(
+      fields
+    )}`
   );
   return r?.data || [];
 }
 
 export async function getIncident(id) {
+  // NOTE: include reported_by so we can update reporter trust later
   const fields =
     "id,category,description,status,score,date_created,latitude,longitude,reported_by," +
-    "media_file.id,media_file.filename_download";
+    "media_file.id,media_file.filename_download," +
+    // optional anti-double-apply flags (create these fields in Directus if you want trust logic)
+    "trust_applied,trust_applied_at,voter_trust_applied,voter_trust_applied_at";
 
-  const r = await request(`/items/incidents/${id}?fields=${encodeURIComponent(fields)}`);
+  const r = await request(
+    `/items/incidents/${id}?fields=${encodeURIComponent(fields)}`
+  );
+  return r?.data;
+}
+
+// PATCH incident (used by recompute + admin moderation in code)
+export async function patchIncident(incidentId, data) {
+  if (!incidentId) throw new Error("Missing incidentId");
+
+  const r = await request(
+    `/items/incidents/${incidentId}?fields=id,score,status,media_file,reported_by,trust_applied,voter_trust_applied`,
+    {
+      method: "PATCH",
+      body: data,
+      auth: true,
+    }
+  );
   return r?.data;
 }
 
 /* =========================================================
-   ✅ Phase 6 Part 3 + Part 4
-   - read all votes for incident
-   - compute score (verified volunteer weight + media bonus)
-   - patch incidents.score and incidents.status
+   Votes (Part 1+2)
 ========================================================= */
+export async function getMyVote(incidentId, userId) {
+  if (!incidentId || !userId) return null;
 
-/**
- * Fetch all votes for one incident.
- * We request BOTH patterns:
- *  - user.verified_badge + user.role.name  (common)
- *  - user_id....                         (fallback)
- */
+  const params = new URLSearchParams({
+    "filter[incident][_eq]": String(incidentId),
+    "filter[user][_eq]": String(userId),
+    limit: "1",
+    fields: "id,vote",
+  });
+
+  const r = await request(`/items/incident_votes?${params.toString()}`, {
+    auth: true,
+  });
+
+  return r?.data?.[0] || null;
+}
+
+/* =========================================================
+   Votes (Part 3) — list votes with user info (weights)
+========================================================= */
 export async function listIncidentVotes(incidentId) {
   if (!incidentId) return [];
 
-  const fields =
-    "id,vote," +
-    "user.id,user.verified_badge,user.role.id,user.role.name," +
-    "user_id.id,user_id.verified_badge,user_id.role.id,user_id.role.name";
+  // Keep both patterns, but we prioritize "user"
+  const fields = [
+    "id",
+    "vote",
+    "user.id",
+    "user.verified_badge",
+    "user.trust_score",
+    "user.role.id",
+    "user.role.name",
+    // fallback fields if your schema ever returns user_id
+    "user_id.id",
+    "user_id.verified_badge",
+    "user_id.trust_score",
+    "user_id.role.id",
+    "user_id.role.name",
+  ].join(",");
 
   const params = new URLSearchParams({
     "filter[incident][_eq]": String(incidentId),
@@ -174,14 +203,29 @@ export async function listIncidentVotes(incidentId) {
     fields,
   });
 
-  const r = await request(`/items/incident_votes?${params.toString()}`, { auth: true });
+  const r = await request(`/items/incident_votes?${params.toString()}`, {
+    auth: true,
+  });
+
   return r?.data || [];
+}
+
+/* =========================================================
+   Score/Status (Part 4) — compute + recompute
+========================================================= */
+
+// Normalize role names safely
+function normalizeRoleName(name) {
+  const raw = String(name || "").trim().toLowerCase();
+  // keep this tiny safeguard in case DB had typo earlier
+  if (raw === "vounteer") return "volunteer";
+  return raw;
 }
 
 /**
  * Compute score:
  * - normal vote: +1 / -1
- * - verified volunteer: +2 / -2
+ * - verified user OR verified volunteer: weight 2
  * - media_file present: +2
  */
 export function computeIncidentScore({ votes = [], hasMedia = false }) {
@@ -193,11 +237,15 @@ export function computeIncidentScore({ votes = [], hasMedia = false }) {
     // Support both relation names
     const user = v?.user || v?.user_id;
 
-    const roleName = (user?.role?.name || "").toLowerCase();
-    const verified = user?.verified_badge === true || user?.verified_badge === 1;
+    const role = normalizeRoleName(user?.role?.name);
+    const verified =
+      user?.verified_badge === true || user?.verified_badge === 1;
 
-    const isVerifiedVolunteer = roleName === "volunteer" && verified;
-    const weight = isVerifiedVolunteer ? 2 : 1;
+    // ✅ verified user OR verified volunteer => weight 2
+    const isVerifiedVoter =
+      verified && (role === "user" || role === "volunteer");
+
+    const weight = isVerifiedVoter ? 2 : 1;
 
     score += weight * delta;
   }
@@ -208,8 +256,8 @@ export function computeIncidentScore({ votes = [], hasMedia = false }) {
 }
 
 /**
- * Score -> Status thresholds:
- *  score >= 3  => verified
+ * Score -> Status thresholds (your current choice):
+ *  score >= 4  => verified
  *  score <= -3 => false
  *  else        => unverified
  */
@@ -228,12 +276,16 @@ export async function recomputeIncidentScoreAndStatus(incident) {
 
   const incidentId = incident.id;
 
+  // IMPORTANT: we need media_file to apply media bonus
+  const fullIncident =
+    incident?.media_file === undefined ? await getIncident(incidentId) : incident;
+
   const votes = await listIncidentVotes(incidentId);
 
   const mediaId =
-    typeof incident?.media_file === "string"
-      ? incident.media_file
-      : incident?.media_file?.id;
+    typeof fullIncident?.media_file === "string"
+      ? fullIncident.media_file
+      : fullIncident?.media_file?.id;
 
   const hasMedia = !!mediaId;
 
@@ -249,31 +301,13 @@ export async function recomputeIncidentScoreAndStatus(incident) {
   };
 }
 
-/* =========================
-   Phase 6: Votes (Part 1+2) + ✅ recompute hook
-========================= */
-
-export async function getMyVote(incidentId, userId) {
-  if (!incidentId || !userId) return null;
-
-  const params = new URLSearchParams({
-    "filter[incident][_eq]": String(incidentId),
-    "filter[user][_eq]": String(userId),
-    limit: "1",
-    fields: "id,vote",
-  });
-
-  const r = await request(`/items/incident_votes?${params.toString()}`, { auth: true });
-  return r?.data?.[0] || null;
-}
-
-/**
- * Upsert vote AND recompute incident score/status.
- * This guarantees the UI sees updated score after voting.
- */
+/* =========================================================
+   Upsert vote + recompute (your existing behavior, fixed)
+========================================================= */
 export async function upsertVote({ incidentId, userId, vote }) {
   if (!incidentId || !userId) throw new Error("Missing incidentId or userId");
-  if (!["up", "down"].includes(vote)) throw new Error("Vote must be 'up' or 'down'");
+  if (!["up", "down"].includes(vote))
+    throw new Error("Vote must be 'up' or 'down'");
 
   const existing = await getMyVote(incidentId, userId);
 
@@ -295,20 +329,19 @@ export async function upsertVote({ incidentId, userId, vote }) {
     savedVote = r?.data;
   }
 
-  // ✅ Now recompute score/status in DB (includes media bonus too)
-  await recomputeIncidentScoreAndStatus({ id: incidentId });
+  // ✅ recompute using FULL incident (so media bonus applies)
+  const inc = await getIncident(incidentId);
+  await recomputeIncidentScoreAndStatus(inc);
 
   return savedVote;
 }
 
-/* =========================
-   ✅ Create Incident with media bonus applied immediately
-   - users can't edit media later, so do it here.
-========================= */
-
+/* =========================================================
+   Create incident + apply media bonus immediately
+========================================================= */
 export async function createIncident(payload) {
   // Create incident and ask for fields we need
-  const r = await request("/items/incidents?fields=id,media_file,score,status", {
+  const r = await request("/items/incidents?fields=id,media_file,score,status,reported_by", {
     method: "POST",
     body: payload,
     auth: true,
@@ -316,16 +349,163 @@ export async function createIncident(payload) {
 
   const created = r?.data;
 
-  // ✅ Immediately apply media bonus and status based on score
-  // (No votes yet, so score will be 2 if media exists, else 0)
+  // Apply media bonus + status right away (score becomes 2 if media exists)
   if (created?.id) {
     try {
       await recomputeIncidentScoreAndStatus(created);
     } catch (e) {
-      // Do not block creation if policy prevents patching
       console.log("Recompute after create failed:", e?.message);
     }
   }
 
   return created;
+}
+
+/* =========================================================
+   TRUST SCORE + VERIFIED BADGE (code-only)
+   - Runs ONLY when you call it (e.g., from an admin screen)
+   - Needs incidents fields to prevent double apply:
+       incidents.trust_applied (boolean)
+       incidents.voter_trust_applied (boolean)
+     If you don't create them, this will throw when patching.
+========================================================= */
+
+// Patch Directus user (system collection)
+async function patchUser(userId, data) {
+  if (!userId) throw new Error("Missing userId");
+  const r = await request(`/users/${userId}?fields=id,trust_score,verified_badge,role.id,role.name`, {
+    method: "PATCH",
+    body: data,
+    auth: true,
+  });
+  return r?.data;
+}
+
+function badgeFromTrust(trustScore, threshold = 6) {
+  return Number(trustScore || 0) >= threshold;
+}
+
+/**
+ * Apply trust updates ONCE for an incident that is FINAL:
+ * - if status === "verified": reporter +4, upvoters +1
+ * - if status === "false":    reporter -4, downvoters +1
+ * - NO punish for voters (as you decided)
+ * - verified_badge auto = trust_score >= 6
+ *
+ * Requires (recommended):
+ * - incidents.trust_applied boolean default false
+ * - incidents.voter_trust_applied boolean default false
+ */
+export async function applyTrustForFinalIncident(incidentId, { badgeThreshold = 6 } = {}) {
+  const incident = await getIncident(incidentId);
+  if (!incident?.id) throw new Error("Incident not found");
+
+  const finalStatus = String(incident.status || "").toLowerCase();
+  if (finalStatus !== "verified" && finalStatus !== "false") {
+    throw new Error("Trust can only be applied when incident status is 'verified' or 'false'");
+  }
+
+  // prevent re-applying (you must create these fields in Directus to use this safely)
+  if (incident.trust_applied && incident.voter_trust_applied) {
+    return { ok: true, skipped: true, reason: "Already applied" };
+  }
+
+  const reporterId = incident.reported_by;
+  if (!reporterId) throw new Error("Incident has no reported_by (reporter) to update trust");
+
+  const votes = await listIncidentVotes(incidentId);
+
+  // Determine correct voters to reward
+  const wantVote = finalStatus === "verified" ? "up" : "down";
+
+  const correctVoterIds = new Set();
+  for (const v of votes) {
+    if (v?.vote !== wantVote) continue;
+    const u = v?.user || v?.user_id;
+    if (u?.id) correctVoterIds.add(u.id);
+  }
+
+  // Update reporter trust
+  // verified => +4, false => -4
+  const reporterDelta = finalStatus === "verified" ? 4 : -4;
+
+  // Read reporter current values (via patch read fields)
+  // (Directus PATCH doesn't return old values, so we do a small read)
+  const reporterMe = await request(
+    `/users/${reporterId}?fields=id,trust_score,verified_badge`,
+    { auth: true }
+  );
+  const reporterOld = reporterMe?.data?.trust_score ?? 0;
+  const reporterNew = Number(reporterOld || 0) + reporterDelta;
+
+  await patchUser(reporterId, {
+    trust_score: reporterNew,
+    verified_badge: badgeFromTrust(reporterNew, badgeThreshold),
+  });
+
+  // Update voters trust (+1) (reward only)
+  for (const voterId of correctVoterIds) {
+    // skip reporter if same person; still okay either way
+    const voterMe = await request(
+      `/users/${voterId}?fields=id,trust_score,verified_badge`,
+      { auth: true }
+    );
+    const oldScore = voterMe?.data?.trust_score ?? 0;
+    const newScore = Number(oldScore || 0) + 1;
+
+    await patchUser(voterId, {
+      trust_score: newScore,
+      verified_badge: badgeFromTrust(newScore, badgeThreshold),
+    });
+  }
+
+  // Mark applied flags (requires these fields exist)
+  const now = new Date().toISOString();
+  await patchIncident(incidentId, {
+    trust_applied: true,
+    trust_applied_at: now,
+    voter_trust_applied: true,
+    voter_trust_applied_at: now,
+  });
+
+  return {
+    ok: true,
+    status: finalStatus,
+    reporter: { id: reporterId, delta: reporterDelta },
+    rewardedVoters: Array.from(correctVoterIds),
+  };
+}
+
+/**
+ * Admin helper:
+ * - set incident status manually (verified/false/unverified/resolved/etc)
+ * - optionally apply trust immediately when status becomes verified/false
+ * - lock: by default won't allow changing away from verified/false
+ */
+export async function adminSetIncidentStatus(
+  incidentId,
+  newStatus,
+  { applyTrust = true, forceChangeFinal = false } = {}
+) {
+  const incident = await getIncident(incidentId);
+  if (!incident?.id) throw new Error("Incident not found");
+
+  const current = String(incident.status || "").toLowerCase();
+  const next = String(newStatus || "").toLowerCase();
+
+  const isFinal = current === "verified" || current === "false";
+  if (isFinal && !forceChangeFinal && next !== current) {
+    throw new Error("Incident is final (verified/false). Refusing to change status.");
+  }
+
+  const updated = await patchIncident(incidentId, { status: next });
+
+  // if moved into final, apply trust
+  const becameFinal = (next === "verified" || next === "false") && !isFinal;
+
+  if (applyTrust && becameFinal) {
+    await applyTrustForFinalIncident(incidentId);
+  }
+
+  return updated;
 }
