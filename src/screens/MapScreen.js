@@ -21,7 +21,7 @@ function statusColor(status) {
   if (s === "verified") return theme.colors.success; // green
   if (s === "unverified") return theme.colors.primary2; // purple
   if (s === "disputed") return theme.colors.warn; // yellow
-  if (s === "false") return "rgba(255,255,255,0.35)"; // gray
+  if (s === "false") return "rgba(7, 0, 0, 0.35)"; // black
   return theme.colors.primary2;
 }
 

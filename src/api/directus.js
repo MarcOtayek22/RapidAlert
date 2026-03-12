@@ -8,6 +8,16 @@ export const DIRECTUS_URL =
   "https://rapidalertservice-production.up.railway.app";
 
 /* =========================================================
+   FINAL FYP CONSTANTS
+========================================================= */
+const VERIFIED_SCORE_THRESHOLD = 4;
+const FALSE_SCORE_THRESHOLD = -3;
+
+const REPORTER_REWARD_VERIFIED = 2;
+const REPORTER_PENALTY_FALSE = -2;
+const VERIFIED_BADGE_THRESHOLD = 4;
+
+/* =========================================================
    Core request helper
 ========================================================= */
 async function request(
@@ -106,11 +116,11 @@ export async function uploadFile({
       json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
     throw new Error(msg);
   }
-  return json?.data; // { id, ... }
+  return json?.data;
 }
 
 /* =========================================================
-   Incidents (CRUD)
+   Incidents
 ========================================================= */
 export async function listIncidents() {
   const fields =
@@ -126,11 +136,9 @@ export async function listIncidents() {
 }
 
 export async function getIncident(id) {
-  // NOTE: include reported_by so we can update reporter trust later
   const fields =
     "id,category,description,status,score,date_created,latitude,longitude,reported_by," +
     "media_file.id,media_file.filename_download," +
-    // optional anti-double-apply flags (create these fields in Directus if you want trust logic)
     "trust_applied,trust_applied_at,voter_trust_applied,voter_trust_applied_at";
 
   const r = await request(
@@ -139,7 +147,6 @@ export async function getIncident(id) {
   return r?.data;
 }
 
-// PATCH incident (used by recompute + admin moderation in code)
 export async function patchIncident(incidentId, data) {
   if (!incidentId) throw new Error("Missing incidentId");
 
@@ -155,7 +162,7 @@ export async function patchIncident(incidentId, data) {
 }
 
 /* =========================================================
-   Votes (Part 1+2)
+   Votes
 ========================================================= */
 export async function getMyVote(incidentId, userId) {
   if (!incidentId || !userId) return null;
@@ -174,13 +181,9 @@ export async function getMyVote(incidentId, userId) {
   return r?.data?.[0] || null;
 }
 
-/* =========================================================
-   Votes (Part 3) — list votes with user info (weights)
-========================================================= */
 export async function listIncidentVotes(incidentId) {
   if (!incidentId) return [];
 
-  // Keep both patterns, but we prioritize "user"
   const fields = [
     "id",
     "vote",
@@ -189,7 +192,6 @@ export async function listIncidentVotes(incidentId) {
     "user.trust_score",
     "user.role.id",
     "user.role.name",
-    // fallback fields if your schema ever returns user_id
     "user_id.id",
     "user_id.verified_badge",
     "user_id.trust_score",
@@ -211,42 +213,29 @@ export async function listIncidentVotes(incidentId) {
 }
 
 /* =========================================================
-   Score/Status (Part 4) — compute + recompute
+   Score / Status
 ========================================================= */
-
-// Normalize role names safely
 function normalizeRoleName(name) {
   const raw = String(name || "").trim().toLowerCase();
-  // keep this tiny safeguard in case DB had typo earlier
   if (raw === "vounteer") return "volunteer";
   return raw;
 }
 
-/**
- * Compute score:
- * - normal vote: +1 / -1
- * - verified user OR verified volunteer: weight 2
- * - media_file present: +2
- */
 export function computeIncidentScore({ votes = [], hasMedia = false }) {
   let score = 0;
 
   for (const v of votes) {
     const delta = v?.vote === "up" ? 1 : v?.vote === "down" ? -1 : 0;
-
-    // Support both relation names
     const user = v?.user || v?.user_id;
 
     const role = normalizeRoleName(user?.role?.name);
     const verified =
       user?.verified_badge === true || user?.verified_badge === 1;
 
-    // ✅ verified user OR verified volunteer => weight 2
     const isVerifiedVoter =
       verified && (role === "user" || role === "volunteer");
 
     const weight = isVerifiedVoter ? 2 : 1;
-
     score += weight * delta;
   }
 
@@ -255,30 +244,99 @@ export function computeIncidentScore({ votes = [], hasMedia = false }) {
   return score;
 }
 
-/**
- * Score -> Status thresholds (your current choice):
- *  score >= 4  => verified
- *  score <= -3 => false
- *  else        => unverified
- */
 export function scoreToStatus(score) {
-  if (score >= 4) return "verified";
-  if (score <= -3) return "false";
+  if (score >= VERIFIED_SCORE_THRESHOLD) return "verified";
+  if (score <= FALSE_SCORE_THRESHOLD) return "false";
   return "unverified";
 }
 
-/**
- * Recompute and PATCH incidents.score/status.
- * Returns {score, status, votesCount}.
- */
+/* =========================================================
+   Trust helpers
+========================================================= */
+async function patchUser(userId, data) {
+  if (!userId) throw new Error("Missing userId");
+
+  const r = await request(
+    `/users/${userId}?fields=id,trust_score,verified_badge,role.id,role.name`,
+    {
+      method: "PATCH",
+      body: data,
+      auth: true,
+    }
+  );
+
+  return r?.data;
+}
+
+async function getUserById(userId) {
+  if (!userId) throw new Error("Missing userId");
+
+  const r = await request(`/users/${userId}?fields=id,trust_score,verified_badge`);
+  return r?.data;
+}
+
+function badgeFromTrust(trustScore) {
+  return Number(trustScore || 0) >= VERIFIED_BADGE_THRESHOLD;
+}
+
+async function applyReporterTrustOnce(incident) {
+  if (!incident?.id) throw new Error("Incident not found");
+
+  const finalStatus = String(incident.status || "").toLowerCase();
+
+  if (finalStatus !== "verified" && finalStatus !== "false") {
+    return { ok: true, skipped: true, reason: "Incident not final" };
+  }
+
+  if (incident.trust_applied) {
+    return { ok: true, skipped: true, reason: "Trust already applied" };
+  }
+
+  const reporterId = incident.reported_by;
+  if (!reporterId) {
+    return { ok: true, skipped: true, reason: "No reporter on incident" };
+  }
+
+  const reporter = await getUserById(reporterId);
+  const oldTrust = Number(reporter?.trust_score || 0);
+
+  const delta =
+    finalStatus === "verified"
+      ? REPORTER_REWARD_VERIFIED
+      : REPORTER_PENALTY_FALSE;
+
+  const newTrust = oldTrust + delta;
+
+  await patchUser(reporterId, {
+    trust_score: newTrust,
+    verified_badge: badgeFromTrust(newTrust),
+  });
+
+  await patchIncident(incident.id, {
+    trust_applied: true,
+    trust_applied_at: new Date().toISOString(),
+  });
+
+  return {
+    ok: true,
+    reporterId,
+    delta,
+    newTrust,
+  };
+}
+
+/* =========================================================
+   Recompute + auto trust
+========================================================= */
 export async function recomputeIncidentScoreAndStatus(incident) {
   if (!incident?.id) throw new Error("Missing incident");
 
   const incidentId = incident.id;
 
-  // IMPORTANT: we need media_file to apply media bonus
   const fullIncident =
     incident?.media_file === undefined ? await getIncident(incidentId) : incident;
+
+  const previousStatus = String(fullIncident?.status || "").toLowerCase();
 
   const votes = await listIncidentVotes(incidentId);
 
@@ -294,6 +352,19 @@ export async function recomputeIncidentScoreAndStatus(incident) {
 
   const updated = await patchIncident(incidentId, { score, status });
 
+  const becameFinal =
+    (status === "verified" || status === "false") &&
+    previousStatus !== status;
+
+  if (becameFinal) {
+    try {
+      const latestIncident = await getIncident(incidentId);
+      await applyReporterTrustOnce(latestIncident);
+    } catch (e) {
+      console.log("Trust apply failed:", e?.message);
+    }
+  }
+
   return {
     score: updated?.score ?? score,
     status: updated?.status ?? status,
@@ -302,12 +373,13 @@ export async function recomputeIncidentScoreAndStatus(incident) {
 }
 
 /* =========================================================
-   Upsert vote + recompute (your existing behavior, fixed)
+   Vote + recompute
 ========================================================= */
 export async function upsertVote({ incidentId, userId, vote }) {
   if (!incidentId || !userId) throw new Error("Missing incidentId or userId");
-  if (!["up", "down"].includes(vote))
+  if (!["up", "down"].includes(vote)) {
     throw new Error("Vote must be 'up' or 'down'");
+  }
 
   const existing = await getMyVote(incidentId, userId);
 
@@ -329,7 +401,6 @@ export async function upsertVote({ incidentId, userId, vote }) {
     savedVote = r?.data;
   }
 
-  // ✅ recompute using FULL incident (so media bonus applies)
   const inc = await getIncident(incidentId);
   await recomputeIncidentScoreAndStatus(inc);
 
@@ -337,19 +408,20 @@ export async function upsertVote({ incidentId, userId, vote }) {
 }
 
 /* =========================================================
-   Create incident + apply media bonus immediately
+   Create incident
 ========================================================= */
 export async function createIncident(payload) {
-  // Create incident and ask for fields we need
-  const r = await request("/items/incidents?fields=id,media_file,score,status,reported_by", {
-    method: "POST",
-    body: payload,
-    auth: true,
-  });
+  const r = await request(
+    "/items/incidents?fields=id,media_file,score,status,reported_by,trust_applied",
+    {
+      method: "POST",
+      body: payload,
+      auth: true,
+    }
+  );
 
   const created = r?.data;
 
-  // Apply media bonus + status right away (score becomes 2 if media exists)
   if (created?.id) {
     try {
       await recomputeIncidentScoreAndStatus(created);
@@ -362,130 +434,12 @@ export async function createIncident(payload) {
 }
 
 /* =========================================================
-   TRUST SCORE + VERIFIED BADGE (code-only)
-   - Runs ONLY when you call it (e.g., from an admin screen)
-   - Needs incidents fields to prevent double apply:
-       incidents.trust_applied (boolean)
-       incidents.voter_trust_applied (boolean)
-     If you don't create them, this will throw when patching.
+   Optional admin helper
 ========================================================= */
-
-// Patch Directus user (system collection)
-async function patchUser(userId, data) {
-  if (!userId) throw new Error("Missing userId");
-  const r = await request(`/users/${userId}?fields=id,trust_score,verified_badge,role.id,role.name`, {
-    method: "PATCH",
-    body: data,
-    auth: true,
-  });
-  return r?.data;
-}
-
-function badgeFromTrust(trustScore, threshold = 6) {
-  return Number(trustScore || 0) >= threshold;
-}
-
-/**
- * Apply trust updates ONCE for an incident that is FINAL:
- * - if status === "verified": reporter +4, upvoters +1
- * - if status === "false":    reporter -4, downvoters +1
- * - NO punish for voters (as you decided)
- * - verified_badge auto = trust_score >= 6
- *
- * Requires (recommended):
- * - incidents.trust_applied boolean default false
- * - incidents.voter_trust_applied boolean default false
- */
-export async function applyTrustForFinalIncident(incidentId, { badgeThreshold = 6 } = {}) {
-  const incident = await getIncident(incidentId);
-  if (!incident?.id) throw new Error("Incident not found");
-
-  const finalStatus = String(incident.status || "").toLowerCase();
-  if (finalStatus !== "verified" && finalStatus !== "false") {
-    throw new Error("Trust can only be applied when incident status is 'verified' or 'false'");
-  }
-
-  // prevent re-applying (you must create these fields in Directus to use this safely)
-  if (incident.trust_applied && incident.voter_trust_applied) {
-    return { ok: true, skipped: true, reason: "Already applied" };
-  }
-
-  const reporterId = incident.reported_by;
-  if (!reporterId) throw new Error("Incident has no reported_by (reporter) to update trust");
-
-  const votes = await listIncidentVotes(incidentId);
-
-  // Determine correct voters to reward
-  const wantVote = finalStatus === "verified" ? "up" : "down";
-
-  const correctVoterIds = new Set();
-  for (const v of votes) {
-    if (v?.vote !== wantVote) continue;
-    const u = v?.user || v?.user_id;
-    if (u?.id) correctVoterIds.add(u.id);
-  }
-
-  // Update reporter trust
-  // verified => +4, false => -4
-  const reporterDelta = finalStatus === "verified" ? 4 : -4;
-
-  // Read reporter current values (via patch read fields)
-  // (Directus PATCH doesn't return old values, so we do a small read)
-  const reporterMe = await request(
-    `/users/${reporterId}?fields=id,trust_score,verified_badge`,
-    { auth: true }
-  );
-  const reporterOld = reporterMe?.data?.trust_score ?? 0;
-  const reporterNew = Number(reporterOld || 0) + reporterDelta;
-
-  await patchUser(reporterId, {
-    trust_score: reporterNew,
-    verified_badge: badgeFromTrust(reporterNew, badgeThreshold),
-  });
-
-  // Update voters trust (+1) (reward only)
-  for (const voterId of correctVoterIds) {
-    // skip reporter if same person; still okay either way
-    const voterMe = await request(
-      `/users/${voterId}?fields=id,trust_score,verified_badge`,
-      { auth: true }
-    );
-    const oldScore = voterMe?.data?.trust_score ?? 0;
-    const newScore = Number(oldScore || 0) + 1;
-
-    await patchUser(voterId, {
-      trust_score: newScore,
-      verified_badge: badgeFromTrust(newScore, badgeThreshold),
-    });
-  }
-
-  // Mark applied flags (requires these fields exist)
-  const now = new Date().toISOString();
-  await patchIncident(incidentId, {
-    trust_applied: true,
-    trust_applied_at: now,
-    voter_trust_applied: true,
-    voter_trust_applied_at: now,
-  });
-
-  return {
-    ok: true,
-    status: finalStatus,
-    reporter: { id: reporterId, delta: reporterDelta },
-    rewardedVoters: Array.from(correctVoterIds),
-  };
-}
-
-/**
- * Admin helper:
- * - set incident status manually (verified/false/unverified/resolved/etc)
- * - optionally apply trust immediately when status becomes verified/false
- * - lock: by default won't allow changing away from verified/false
- */
 export async function adminSetIncidentStatus(
   incidentId,
   newStatus,
-  { applyTrust = true, forceChangeFinal = false } = {}
+  { forceChangeFinal = false } = {}
 ) {
   const incident = await getIncident(incidentId);
   if (!incident?.id) throw new Error("Incident not found");
@@ -500,11 +454,10 @@ export async function adminSetIncidentStatus(
 
   const updated = await patchIncident(incidentId, { status: next });
 
-  // if moved into final, apply trust
   const becameFinal = (next === "verified" || next === "false") && !isFinal;
-
-  if (applyTrust && becameFinal) {
-    await applyTrustForFinalIncident(incidentId);
+  if (becameFinal) {
+    const latest = await getIncident(incidentId);
+    await applyReporterTrustOnce(latest);
   }
 
   return updated;
