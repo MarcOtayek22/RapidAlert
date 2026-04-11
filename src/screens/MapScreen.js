@@ -1,7 +1,6 @@
-// src/screens/MapScreen.js
 import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, ActivityIndicator, Pressable } from "react-native";
-import MapView, { Marker } from "react-native-maps";
+import MapView, { Marker, Circle } from "react-native-maps";
 import * as Location from "expo-location";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 
@@ -10,12 +9,15 @@ import Header from "../components/Header";
 import Card from "../components/Card";
 import Chip from "../components/Chip";
 import { theme } from "../theme/theme";
-import { listIncidents } from "../api/directus";
-
+import {
+  registerForNotificationsAsync,
+  sendLocalDangerNotification,
+} from "../api/notifications";
+import { listIncidents, listDangerZones } from "../api/directus";
 const STATUS_OPTIONS = ["all", "unverified", "verified", "disputed", "false"];
 const CATEGORY_OPTIONS = ["all", "Fire", "Road Closure", "Explosion", "Medical", "Other"];
 
-// ✅ status → marker color (per your request)
+
 function statusColor(status) {
   const s = (status || "").toLowerCase();
   if (s === "verified") return theme.colors.success; // green
@@ -49,14 +51,35 @@ function groupKey(lat, lng) {
   return `${r(lat)}|${r(lng)}`;
 }
 
+function distanceInMeters(lat1, lon1, lat2, lon2) {
+  const toRad = (v) => (v * Math.PI) / 180;
+  const R = 6371000;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 export default function MapScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
+
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
   const [incidents, setIncidents] = useState([]);
+  const [alertedZoneIds, setAlertedZoneIds] = useState([]);
+  const [dangerZones, setDangerZones] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
@@ -84,6 +107,27 @@ export default function MapScreen() {
     }
   }
 
+  async function loadDangerZones() {
+  try {
+    const data = await listDangerZones();
+    const items = Array.isArray(data) ? data : data?.data ?? [];
+
+    console.log("raw danger zones from API:", items);
+
+    const fixed = (items || []).map((zone) => ({
+      ...zone,
+      latitude: typeof zone.latitude === "string" ? parseFloat(zone.latitude) : zone.latitude,
+      longitude: typeof zone.longitude === "string" ? parseFloat(zone.longitude) : zone.longitude,
+      radius_m: typeof zone.radius_m === "string" ? parseFloat(zone.radius_m) : zone.radius_m,
+    }));
+
+    console.log("normalized danger zones:", fixed);
+    setDangerZones(fixed);
+  } catch (e) {
+    console.error("Failed to load danger zones:", e);
+    setDangerZones([]);
+  }
+}
   async function loadMyLocation() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -95,12 +139,85 @@ export default function MapScreen() {
     }
   }
 
-  useEffect(() => {
-    if (!isFocused) return;
-    loadIncidents();
-    loadMyLocation();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isFocused]);
+useEffect(() => {
+  if (!isFocused) return;
+  loadIncidents();
+  loadDangerZones();
+  loadMyLocation();
+  console.log("Requesting notification permission...");
+  registerForNotificationsAsync();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [isFocused]);
+
+useEffect(() => {
+  if (!myPos || !dangerZones.length) return;
+
+  async function checkNearbyDanger() {
+    console.log("myPos:", myPos);
+    console.log("dangerZones:", dangerZones);
+    console.log("alertedZoneIds:", alertedZoneIds);
+
+    for (const zone of dangerZones) {
+      console.log("checking zone:", zone);
+
+      if (alertedZoneIds.includes(zone.id)) {
+        console.log("zone already alerted, skipping:", zone.id);
+        continue;
+      }
+
+      if (
+        !Number.isFinite(zone.latitude) ||
+        !Number.isFinite(zone.longitude) ||
+        !Number.isFinite(zone.radius_m)
+      ) {
+        console.log("invalid zone coords/radius, skipping:", zone);
+        continue;
+      }
+
+      const d = distanceInMeters(
+        myPos.latitude,
+        myPos.longitude,
+        zone.latitude,
+        zone.longitude
+      );
+
+      console.log(
+        "zone id:", zone.id,
+        "distance:", d,
+        "radius:", zone.radius_m,
+        "inside:", d <= zone.radius_m
+      );
+
+      if (d <= zone.radius_m) {
+        console.log("INSIDE danger zone -> sending notification for zone", zone.id);
+
+        await sendLocalDangerNotification({
+          title: "Danger nearby",
+          body: "A verified incident has been reported near your location.",
+          data: {
+            zoneId: zone.id,
+            incidentId: zone.incident,
+          },
+        });
+
+        setAlertedZoneIds((prev) => [...prev, zone.id]);
+      }
+    }
+  }
+
+  checkNearbyDanger();
+}, [myPos, dangerZones]);
+
+useEffect(() => {
+  if (!isFocused) return;
+
+  const interval = setInterval(() => {
+    loadDangerZones();
+  }, 15000); // every 15 seconds
+
+  return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [isFocused]);
 
   const filtered = useMemo(() => {
     return (incidents || []).filter((inc) => {
@@ -251,6 +368,31 @@ export default function MapScreen() {
                 pinColor={theme.colors.primary}
               />
             ) : null}
+
+             {dangerZones.map((zone) => {
+    if (
+      !Number.isFinite(zone.latitude) ||
+      !Number.isFinite(zone.longitude) ||
+      !Number.isFinite(zone.radius_m)
+    ) {
+      return null;
+    }
+
+    return (
+      <Circle
+        key={zone.id}
+        center={{
+          latitude: zone.latitude,
+          longitude: zone.longitude,
+        }}
+        radius={zone.radius_m}
+        strokeWidth={2}
+        strokeColor="rgba(255, 0, 0, 0.7)"
+        fillColor="rgba(255, 0, 0, 0.2)"
+      />
+    );
+  })}
+
 
             {/* grouped incident markers */}
             {grouped.map((g) => {

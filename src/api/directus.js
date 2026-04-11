@@ -462,3 +462,7 @@ export async function adminSetIncidentStatus(
 
   return updated;
 }
+export async function listDangerZones() {
+  const res = await request("/items/danger_zones?filter[active][_eq]=true");
+  return res?.data || [];
+}

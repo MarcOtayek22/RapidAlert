@@ -57,10 +57,10 @@ export default function ReportScreen() {
     if (!perm.granted) return setError("Media permission denied.");
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.85,
-    });
+    mediaTypes: ["images"],   // ✅ FIXED
+    allowsEditing: true,
+    quality: 0.85,
+});
 
     if (result.canceled) return;
     const asset = result.assets?.[0];
