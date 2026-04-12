@@ -271,7 +271,9 @@ async function patchUser(userId, data) {
 async function getUserById(userId) {
   if (!userId) throw new Error("Missing userId");
 
-  const r = await request(`/users/${userId}?fields=id,trust_score,verified_badge`);
+  const r = await request(
+    `/users/${userId}?fields=id,trust_score,verified_badge`
+  );
   return r?.data;
 }
 
@@ -336,8 +338,6 @@ export async function recomputeIncidentScoreAndStatus(incident) {
   const fullIncident =
     incident?.media_file === undefined ? await getIncident(incidentId) : incident;
 
-  const previousStatus = String(fullIncident?.status || "").toLowerCase();
-
   const votes = await listIncidentVotes(incidentId);
 
   const mediaId =
@@ -352,11 +352,9 @@ export async function recomputeIncidentScoreAndStatus(incident) {
 
   const updated = await patchIncident(incidentId, { score, status });
 
-  const becameFinal =
-    (status === "verified" || status === "false") &&
-    previousStatus !== status;
+  const isFinal = status === "verified" || status === "false";
 
-  if (becameFinal) {
+  if (isFinal) {
     try {
       const latestIncident = await getIncident(incidentId);
       await applyReporterTrustOnce(latestIncident);
@@ -462,7 +460,90 @@ export async function adminSetIncidentStatus(
 
   return updated;
 }
+
 export async function listDangerZones() {
   const res = await request("/items/danger_zones?filter[active][_eq]=true");
   return res?.data || [];
+}
+
+/* =========================================================
+   SOS Requests
+========================================================= */
+export async function createSosRequest(payload) {
+  const r = await request(
+    "/items/sos_requests?fields=id,latitude,longitude,type_of_help,note,status,user,assigned_volunteer,date_created",
+    {
+      method: "POST",
+      body: payload,
+      auth: true,
+    }
+  );
+  return r?.data;
+}
+
+export async function listSosRequests() {
+  const fields = [
+    "id",
+    "latitude",
+    "longitude",
+    "type_of_help",
+    "note",
+    "status",
+    "date_created",
+    "user.id",
+    "user.email",
+    "assigned_volunteer.id",
+    "assigned_volunteer.email",
+  ].join(",");
+
+  const r = await request(
+    `/items/sos_requests?sort=-date_created&limit=100&fields=${encodeURIComponent(fields)}`
+  );
+
+  return r?.data || [];
+}
+
+export async function patchSosRequest(id, data) {
+  if (!id) throw new Error("Missing SOS request id");
+
+  const r = await request(
+    `/items/sos_requests/${id}?fields=id,status,assigned_volunteer`,
+    {
+      method: "PATCH",
+      body: data,
+      auth: true,
+    }
+  );
+
+  return r?.data;
+}
+export async function listMySosRequests(userId) {
+  if (!userId) return [];
+
+  const fields = [
+    "id",
+    "latitude",
+    "longitude",
+    "type_of_help",
+    "note",
+    "status",
+    "date_created",
+    "user.id",
+    "user.email",
+    "assigned_volunteer.id",
+    "assigned_volunteer.email",
+  ].join(",");
+
+  const params = new URLSearchParams({
+    "filter[user][_eq]": String(userId),
+    sort: "-date_created",
+    limit: "20",
+    fields,
+  });
+
+  const r = await request(`/items/sos_requests?${params.toString()}`, {
+    auth: true,
+  });
+
+  return r?.data || [];
 }

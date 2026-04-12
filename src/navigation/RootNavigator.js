@@ -7,6 +7,7 @@ import IncidentDetailsScreen from "../screens/IncidentDetailsScreen";
 import VolunteerApplyScreen from "../screens/VolunteerApplyScreen";
 import LocationDetailsScreen from "../screens/LocationDetailsScreen";
 import IncidentListAtPointScreen from "../screens/IncidentListAtPointScreen";
+import VolunteerTasksScreen from "../screens/VolunteerTasksScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -17,7 +18,8 @@ export default function RootNavigator() {
       <Stack.Screen name="IncidentDetails" component={IncidentDetailsScreen} />
       <Stack.Screen name="LocationDetails" component={LocationDetailsScreen} />
       <Stack.Screen name="IncidentListAtPoint" component={IncidentListAtPointScreen} />
-    <Stack.Screen name="VolunteerApply" component={VolunteerApplyScreen} />
+      <Stack.Screen name="VolunteerApply" component={VolunteerApplyScreen} />
+      <Stack.Screen name="VolunteerTasks" component={VolunteerTasksScreen} />
     </Stack.Navigator>
   );
 }

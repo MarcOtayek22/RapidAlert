@@ -11,18 +11,15 @@ import PrimaryButton from "../components/PrimaryButton";
 import { theme } from "../theme/theme";
 import { useAuth } from "../auth/AuthContext";
 
-export default function ProfileScreen() {
-  // ✅ Now AuthContext REALLY provides `verified`
+export default function ProfileScreen({ navigation }) {
   const { me, role, verified, isLoggedIn, login, logout, loading, refresh } = useAuth();
 
-  // Put your real testing user here
   const [email, setEmail] = useState("user@rapidalert.com");
   const [password, setPassword] = useState("12345678");
   const [error, setError] = useState(null);
 
   const roleNorm = useMemo(() => String(role || "guest").trim().toLowerCase(), [role]);
 
-  // ✅ verified comes directly from context (derived from me.verified_badge)
   const verifiedBool = useMemo(
     () => verified === true || verified === "true" || verified === 1,
     [verified]
@@ -161,12 +158,12 @@ export default function ProfileScreen() {
             {(isUser || isAdmin) && !verifiedBool ? (
               <>
                 <Text style={{ color: theme.colors.faint, marginBottom: 10 }}>
-                  🧾 Apply to become a verified volunteer (application workflow later).
+                  🧾 Apply to become a verified volunteer.
                 </Text>
 
                 <PrimaryButton
                   title="Apply to be Volunteer"
-                  onPress={() => console.log("Apply pressed")}
+                  onPress={() => navigation.navigate("VolunteerApply")}
                   icon={<Ionicons name="shield-checkmark" size={18} color="white" />}
                 />
                 <View style={{ height: theme.spacing(2) }} />
@@ -185,12 +182,12 @@ export default function ProfileScreen() {
             {isVolunteer && verifiedBool ? (
               <>
                 <Text style={{ color: theme.colors.success, fontWeight: "900", marginBottom: 10 }}>
-                  ✅ Verified volunteer — tasks unlocked (placeholder UI).
+                  ✅ Verified volunteer — tasks unlocked.
                 </Text>
 
                 <PrimaryButton
-                  title="Volunteer Tasks (placeholder)"
-                  onPress={() => console.log("Volunteer tasks")}
+                  title="Volunteer Tasks"
+                  onPress={() => navigation.navigate("VolunteerTasks")}
                   icon={<Ionicons name="clipboard" size={18} color="white" />}
                 />
                 <View style={{ height: theme.spacing(2) }} />
@@ -220,7 +217,9 @@ export default function ProfileScreen() {
         <Text style={{ color: theme.colors.faint }}>role(raw): {String(role)}</Text>
         <Text style={{ color: theme.colors.faint }}>role(norm): {String(roleNorm)}</Text>
         <Text style={{ color: theme.colors.faint }}>verified(raw): {String(verified)}</Text>
-        <Text style={{ color: theme.colors.faint }}>verified_badge(from me): {String(me?.verified_badge)}</Text>
+        <Text style={{ color: theme.colors.faint }}>
+          verified_badge(from me): {String(me?.verified_badge)}
+        </Text>
       </Card>
     </Screen>
   );
