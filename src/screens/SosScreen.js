@@ -12,7 +12,11 @@ import Chip from "../components/Chip";
 import PrimaryButton from "../components/PrimaryButton";
 import { theme } from "../theme/theme";
 import { useAuth } from "../auth/AuthContext";
-import { createSosRequest, listMySosRequests } from "../api/directus";
+import {
+  createSosRequest,
+  listMySosRequests,
+  patchSosRequest,
+} from "../api/directus";
 
 const HELP_TYPES = ["Medical", "Transport", "Shelter", "Supplies", "Other"];
 
@@ -21,6 +25,7 @@ function prettyStatus(status) {
   if (s === "active") return "Active";
   if (s === "assigned") return "Assigned";
   if (s === "resolved") return "Resolved";
+  if (s === "cancelled") return "Cancelled";
   return status || "Unknown";
 }
 
@@ -35,6 +40,7 @@ export default function SosScreen() {
   const [gpsLoading, setGpsLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [latestMySos, setLatestMySos] = useState(null);
@@ -124,6 +130,7 @@ export default function SosScreen() {
         note: note.trim(),
         status: "active",
         user: me.id,
+        withdrawal_requested: false,
       });
 
       setSuccess("SOS request sent successfully.");
@@ -138,6 +145,52 @@ export default function SosScreen() {
       setLoading(false);
     }
   }
+
+  async function handleCancelActive() {
+    if (!latestMySos?.id) return;
+
+    setActionLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await patchSosRequest(latestMySos.id, {
+        status: "cancelled",
+        withdrawal_requested: false,
+      });
+      setSuccess("SOS request cancelled.");
+      await loadMyLatestSos();
+    } catch (e) {
+      setError(e?.message || "Failed to cancel SOS.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function handleRequestWithdrawal() {
+    if (!latestMySos?.id) return;
+
+    setActionLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      await patchSosRequest(latestMySos.id, {
+        withdrawal_requested: true,
+      });
+      setSuccess("Withdrawal requested. Waiting for volunteer action.");
+      await loadMyLatestSos();
+    } catch (e) {
+      setError(e?.message || "Failed to request withdrawal.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  const latestStatus = String(latestMySos?.status || "").toLowerCase();
+  const canCancelActive = latestStatus === "active";
+  const canRequestWithdrawal =
+    latestStatus === "assigned" && latestMySos?.withdrawal_requested !== true;
 
   return (
     <Screen>
@@ -292,6 +345,9 @@ export default function SosScreen() {
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 <Chip icon="radio" text={latestMySos.type_of_help || "SOS"} tone="danger" />
                 <Chip icon="alert-circle" text={`Status: ${prettyStatus(latestMySos.status)}`} />
+                {latestMySos.withdrawal_requested ? (
+                  <Chip icon="exit" text="Withdrawal requested" tone="warn" />
+                ) : null}
               </View>
 
               <View style={{ height: theme.spacing(1.5) }} />
@@ -308,6 +364,30 @@ export default function SosScreen() {
                 <Text style={{ color: theme.colors.success, marginTop: 6, fontWeight: "800" }}>
                   Assigned volunteer: {latestMySos.assigned_volunteer.email}
                 </Text>
+              ) : null}
+
+              {canCancelActive ? (
+                <>
+                  <View style={{ height: theme.spacing(2) }} />
+                  <PrimaryButton
+                    title={actionLoading ? "Cancelling..." : "Cancel SOS"}
+                    onPress={handleCancelActive}
+                    disabled={actionLoading}
+                    icon={<Ionicons name="close-circle" size={18} color="white" />}
+                  />
+                </>
+              ) : null}
+
+              {canRequestWithdrawal ? (
+                <>
+                  <View style={{ height: theme.spacing(2) }} />
+                  <PrimaryButton
+                    title={actionLoading ? "Requesting..." : "Request Withdrawal"}
+                    onPress={handleRequestWithdrawal}
+                    disabled={actionLoading}
+                    icon={<Ionicons name="arrow-undo" size={18} color="white" />}
+                  />
+                </>
               ) : null}
             </>
           )}

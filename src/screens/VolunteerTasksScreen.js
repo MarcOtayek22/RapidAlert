@@ -151,11 +151,52 @@ export default function VolunteerTasksScreen() {
       await patchSosRequest(item.id, {
         status: "assigned",
         assigned_volunteer: me.id,
+        withdrawal_requested: false,
       });
 
       await loadRequests();
     } catch (e) {
       setError(e?.message || "Failed to accept SOS request.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function resolveRequest(item) {
+    if (!item?.id) return;
+
+    setBusyId(item.id);
+    setError(null);
+
+    try {
+      await patchSosRequest(item.id, {
+        status: "resolved",
+        withdrawal_requested: false,
+      });
+
+      await loadRequests();
+    } catch (e) {
+      setError(e?.message || "Failed to resolve SOS request.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function approveWithdrawal(item) {
+    if (!item?.id) return;
+
+    setBusyId(item.id);
+    setError(null);
+
+    try {
+      await patchSosRequest(item.id, {
+        status: "cancelled",
+        withdrawal_requested: false,
+      });
+
+      await loadRequests();
+    } catch (e) {
+      setError(e?.message || "Failed to approve withdrawal.");
     } finally {
       setBusyId(null);
     }
@@ -202,6 +243,7 @@ export default function VolunteerTasksScreen() {
         items.map((item) => {
           const assignedToMe = item?.assigned_volunteer?.id === me?.id;
           const isAssigned = item?.status === "assigned";
+          const withdrawalRequested = item?.withdrawal_requested === true;
 
           return (
             <Card key={item.id} strong style={{ marginBottom: 12 }}>
@@ -214,6 +256,9 @@ export default function VolunteerTasksScreen() {
               <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                 <Chip icon="alert-circle" text={`Status: ${item?.status || "unknown"}`} />
                 <Chip icon="mail" text={`User: ${item?.user?.email || "unknown"}`} />
+                {withdrawalRequested ? (
+                  <Chip icon="exit" text="Withdrawal requested" tone="warn" />
+                ) : null}
               </View>
 
               <View style={{ height: theme.spacing(1.5) }} />
@@ -235,9 +280,26 @@ export default function VolunteerTasksScreen() {
                   icon={<Ionicons name="checkmark-circle" size={18} color="white" />}
                 />
               ) : assignedToMe ? (
-                <Text style={{ color: theme.colors.success, fontWeight: "900" }}>
-                  Assigned to you
-                </Text>
+                <>
+                  {withdrawalRequested ? (
+                    <>
+                      <PrimaryButton
+                        title={busyId === item.id ? "Approving..." : "Approve Withdrawal"}
+                        onPress={() => approveWithdrawal(item)}
+                        disabled={busyId === item.id}
+                        icon={<Ionicons name="close-circle" size={18} color="white" />}
+                      />
+                      <View style={{ height: theme.spacing(1.5) }} />
+                    </>
+                  ) : null}
+
+                  <PrimaryButton
+                    title={busyId === item.id ? "Completing..." : "Mark Resolved"}
+                    onPress={() => resolveRequest(item)}
+                    disabled={busyId === item.id}
+                    icon={<Ionicons name="checkmark-done-circle" size={18} color="white" />}
+                  />
+                </>
               ) : (
                 <Text style={{ color: theme.colors.warn, fontWeight: "900" }}>
                   Already assigned

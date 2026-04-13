@@ -471,7 +471,7 @@ export async function listDangerZones() {
 ========================================================= */
 export async function createSosRequest(payload) {
   const r = await request(
-    "/items/sos_requests?fields=id,latitude,longitude,type_of_help,note,status,user,assigned_volunteer,date_created",
+    "/items/sos_requests?fields=id,latitude,longitude,type_of_help,note,status,user,assigned_volunteer,withdrawal_requested,date_created",
     {
       method: "POST",
       body: payload,
@@ -489,6 +489,7 @@ export async function listSosRequests() {
     "type_of_help",
     "note",
     "status",
+    "withdrawal_requested",
     "date_created",
     "user.id",
     "user.email",
@@ -507,7 +508,7 @@ export async function patchSosRequest(id, data) {
   if (!id) throw new Error("Missing SOS request id");
 
   const r = await request(
-    `/items/sos_requests/${id}?fields=id,status,assigned_volunteer`,
+    `/items/sos_requests/${id}?fields=id,status,assigned_volunteer,withdrawal_requested`,
     {
       method: "PATCH",
       body: data,
@@ -517,6 +518,7 @@ export async function patchSosRequest(id, data) {
 
   return r?.data;
 }
+
 export async function listMySosRequests(userId) {
   if (!userId) return [];
 
@@ -527,6 +529,7 @@ export async function listMySosRequests(userId) {
     "type_of_help",
     "note",
     "status",
+    "withdrawal_requested",
     "date_created",
     "user.id",
     "user.email",
@@ -546,4 +549,58 @@ export async function listMySosRequests(userId) {
   });
 
   return r?.data || [];
+}
+
+/* =========================================================
+   Community Support Posts
+========================================================= */
+export async function createSupportPost(payload) {
+  const r = await request(
+    "/items/support_posts?fields=id,type,category,decription,latitude,longitude,status,verified_post,user,accepted_by,date_created",
+    {
+      method: "POST",
+      body: payload,
+      auth: true,
+    }
+  );
+  return r?.data;
+}
+
+export async function listSupportPosts() {
+  const fields = [
+    "id",
+    "type",
+    "category",
+    "decription",
+    "latitude",
+    "longitude",
+    "status",
+    "verified_post",
+    "date_created",
+    "user.id",
+    "user.email",
+    "accepted_by.id",
+    "accepted_by.email",
+  ].join(",");
+
+  const r = await request(
+    `/items/support_posts?sort=-date_created&limit=200&fields=${encodeURIComponent(fields)}`
+  );
+
+  return r?.data || [];
+}
+
+export async function patchSupportPost(id, data) {
+  if (!id) throw new Error("Missing support post id");
+
+  const r = await request(
+    `/items/support_posts/${id}?fields=id,status,verified_post,accepted_by`,
+    {
+      method: "PATCH",
+      body: data,
+      auth: true,
+    }
+  );
+
+  return r?.data;
 }
