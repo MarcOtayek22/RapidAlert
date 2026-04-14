@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from "react";
+// src/screens/MapScreen.js
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, ActivityIndicator, Pressable } from "react-native";
-import MapView, { Marker, Circle } from "react-native-maps";
+import MapView, { Marker, Circle, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 
@@ -8,26 +9,28 @@ import Screen from "../components/Screen";
 import Header from "../components/Header";
 import Card from "../components/Card";
 import Chip from "../components/Chip";
+import PrimaryButton from "../components/PrimaryButton";
 import { theme } from "../theme/theme";
 import {
   registerForNotificationsAsync,
   sendLocalDangerNotification,
 } from "../api/notifications";
 import { listIncidents, listDangerZones } from "../api/directus";
+
 const STATUS_OPTIONS = ["all", "unverified", "verified", "disputed", "false"];
 const CATEGORY_OPTIONS = ["all", "Fire", "Road Closure", "Explosion", "Medical", "Other"];
-
+const ORS_API_KEY = process.env.EXPO_PUBLIC_ORS_API_KEY || "";
+const SAFE_BUFFER_M = 120;
 
 function statusColor(status) {
   const s = (status || "").toLowerCase();
-  if (s === "verified") return theme.colors.success; // green
-  if (s === "unverified") return theme.colors.primary2; // purple
-  if (s === "disputed") return theme.colors.warn; // yellow
-  if (s === "false") return "rgba(7, 0, 0, 0.35)"; // black
+  if (s === "verified") return theme.colors.success;
+  if (s === "unverified") return theme.colors.primary2;
+  if (s === "disputed") return theme.colors.warn;
+  if (s === "false") return "rgba(7, 0, 0, 0.35)";
   return theme.colors.primary2;
 }
 
-// ✅ for grouped markers: choose the dominant status at that location
 function dominantStatus(items = []) {
   const counts = {};
   for (const it of items) {
@@ -45,7 +48,6 @@ function dominantStatus(items = []) {
   return best;
 }
 
-// ✅ rounds so “same place” groups into one marker
 function groupKey(lat, lng) {
   const r = (n) => Number(n).toFixed(4);
   return `${r(lat)}|${r(lng)}`;
@@ -69,10 +71,96 @@ function distanceInMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+function metersToLatitudeDelta(meters) {
+  return meters / 111320;
+}
+
+function metersToLongitudeDelta(meters, latitude) {
+  const denom = 111320 * Math.cos((latitude * Math.PI) / 180);
+  return denom === 0 ? 0 : meters / denom;
+}
+
+function computeSafePoint(zone, userPos) {
+  const centerLat = Number(zone.latitude);
+  const centerLng = Number(zone.longitude);
+  const radius = Number(zone.radius_m);
+
+  const latDelta = userPos.latitude - centerLat;
+  const lngDelta = userPos.longitude - centerLng;
+
+  const distance = distanceInMeters(
+    centerLat,
+    centerLng,
+    userPos.latitude,
+    userPos.longitude
+  );
+
+  const targetDistance = radius + SAFE_BUFFER_M;
+
+  if (!Number.isFinite(distance) || distance < 1) {
+    const northLat = centerLat + metersToLatitudeDelta(targetDistance);
+    return {
+      latitude: northLat,
+      longitude: centerLng,
+    };
+  }
+
+  const scale = targetDistance / distance;
+
+  const safeLat = centerLat + latDelta * scale;
+  const safeLng = centerLng + lngDelta * scale;
+
+  return {
+    latitude: safeLat,
+    longitude: safeLng,
+  };
+}
+
+async function fetchSafeRoute(start, end) {
+  const res = await fetch(
+    "https://api.openrouteservice.org/v2/directions/driving-car/geojson",
+    {
+      method: "POST",
+      headers: {
+        Authorization: ORS_API_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        coordinates: [
+          [start.longitude, start.latitude],
+          [end.longitude, end.latitude],
+        ],
+      }),
+    }
+  );
+
+  const json = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg =
+      json?.error?.message ||
+      json?.error ||
+      json?.message ||
+      `ORS HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+
+  const coords = json?.features?.[0]?.geometry?.coordinates || [];
+  const summary = json?.features?.[0]?.properties?.summary || null;
+
+  return {
+    points: coords.map(([lng, lat]) => ({
+      latitude: lat,
+      longitude: lng,
+    })),
+    summary,
+  };
+}
+
 export default function MapScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
-
+  const mapRef = useRef(null);
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
@@ -85,6 +173,13 @@ export default function MapScreen() {
 
   const [myPos, setMyPos] = useState(null);
 
+  const [activeZone, setActiveZone] = useState(null);
+  const [safePoint, setSafePoint] = useState(null);
+  const [routePoints, setRoutePoints] = useState([]);
+  const [routeSummary, setRouteSummary] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState(null);
+
   async function loadIncidents() {
     setLoading(true);
     setErr(null);
@@ -92,7 +187,6 @@ export default function MapScreen() {
       const data = await listIncidents();
       const items = Array.isArray(data) ? data : data?.data ?? [];
 
-      // normalize coordinates safely (keeps everything else the same)
       const fixed = (items || []).map((it) => ({
         ...it,
         latitude: typeof it.latitude === "string" ? parseFloat(it.latitude) : it.latitude,
@@ -108,69 +202,62 @@ export default function MapScreen() {
   }
 
   async function loadDangerZones() {
-  try {
-    const data = await listDangerZones();
-    const items = Array.isArray(data) ? data : data?.data ?? [];
+    try {
+      const data = await listDangerZones();
+      const items = Array.isArray(data) ? data : data?.data ?? [];
 
-    console.log("raw danger zones from API:", items);
+      const fixed = (items || []).map((zone) => ({
+        ...zone,
+        latitude: typeof zone.latitude === "string" ? parseFloat(zone.latitude) : zone.latitude,
+        longitude: typeof zone.longitude === "string" ? parseFloat(zone.longitude) : zone.longitude,
+        radius_m: typeof zone.radius_m === "string" ? parseFloat(zone.radius_m) : zone.radius_m,
+      }));
 
-    const fixed = (items || []).map((zone) => ({
-      ...zone,
-      latitude: typeof zone.latitude === "string" ? parseFloat(zone.latitude) : zone.latitude,
-      longitude: typeof zone.longitude === "string" ? parseFloat(zone.longitude) : zone.longitude,
-      radius_m: typeof zone.radius_m === "string" ? parseFloat(zone.radius_m) : zone.radius_m,
-    }));
-
-    console.log("normalized danger zones:", fixed);
-    setDangerZones(fixed);
-  } catch (e) {
-    console.error("Failed to load danger zones:", e);
-    setDangerZones([]);
+      setDangerZones(fixed);
+    } catch (e) {
+      console.error("Failed to load danger zones:", e);
+      setDangerZones([]);
+    }
   }
-}
+
   async function loadMyLocation() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
       const loc = await Location.getCurrentPositionAsync({});
-      setMyPos({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      setMyPos({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
     } catch {
       // ignore
     }
   }
 
-useEffect(() => {
-  if (!isFocused) return;
-  loadIncidents();
-  loadDangerZones();
-  loadMyLocation();
-  console.log("Requesting notification permission...");
-  registerForNotificationsAsync();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [isFocused]);
+  useEffect(() => {
+    if (!isFocused) return;
+    loadIncidents();
+    loadDangerZones();
+    loadMyLocation();
+    registerForNotificationsAsync();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFocused]);
 
-useEffect(() => {
-  if (!myPos || !dangerZones.length) return;
+  useEffect(() => {
+    if (!myPos || !dangerZones.length) {
+      setActiveZone(null);
+      return;
+    }
 
-  async function checkNearbyDanger() {
-    console.log("myPos:", myPos);
-    console.log("dangerZones:", dangerZones);
-    console.log("alertedZoneIds:", alertedZoneIds);
+    let nearestInsideZone = null;
+    let nearestDistance = Infinity;
 
     for (const zone of dangerZones) {
-      console.log("checking zone:", zone);
-
-      if (alertedZoneIds.includes(zone.id)) {
-        console.log("zone already alerted, skipping:", zone.id);
-        continue;
-      }
-
       if (
         !Number.isFinite(zone.latitude) ||
         !Number.isFinite(zone.longitude) ||
         !Number.isFinite(zone.radius_m)
       ) {
-        console.log("invalid zone coords/radius, skipping:", zone);
         continue;
       }
 
@@ -181,43 +268,121 @@ useEffect(() => {
         zone.longitude
       );
 
-      console.log(
-        "zone id:", zone.id,
-        "distance:", d,
-        "radius:", zone.radius_m,
-        "inside:", d <= zone.radius_m
-      );
-
-      if (d <= zone.radius_m) {
-        console.log("INSIDE danger zone -> sending notification for zone", zone.id);
-
-        await sendLocalDangerNotification({
-          title: "Danger nearby",
-          body: "A verified incident has been reported near your location.",
-          data: {
-            zoneId: zone.id,
-            incidentId: zone.incident,
-          },
-        });
-
-        setAlertedZoneIds((prev) => [...prev, zone.id]);
+      if (d <= zone.radius_m && d < nearestDistance) {
+        nearestInsideZone = zone;
+        nearestDistance = d;
       }
+    }
+
+    setActiveZone(nearestInsideZone || null);
+
+    if (!nearestInsideZone) {
+      setSafePoint(null);
+      setRoutePoints([]);
+      setRouteSummary(null);
+      setRouteError(null);
+    }
+  }, [myPos, dangerZones]);
+
+  useEffect(() => {
+    if (!myPos || !dangerZones.length) return;
+
+    async function checkNearbyDanger() {
+      for (const zone of dangerZones) {
+        if (alertedZoneIds.includes(zone.id)) continue;
+
+        if (
+          !Number.isFinite(zone.latitude) ||
+          !Number.isFinite(zone.longitude) ||
+          !Number.isFinite(zone.radius_m)
+        ) {
+          continue;
+        }
+
+        const d = distanceInMeters(
+          myPos.latitude,
+          myPos.longitude,
+          zone.latitude,
+          zone.longitude
+        );
+
+        if (d <= zone.radius_m) {
+          await sendLocalDangerNotification({
+            title: "Danger nearby",
+            body: "A verified incident has been reported near your location.",
+            data: {
+              zoneId: zone.id,
+              incidentId: zone.incident,
+            },
+          });
+
+          setAlertedZoneIds((prev) => [...prev, zone.id]);
+        }
+      }
+    }
+
+    checkNearbyDanger();
+  }, [myPos, dangerZones, alertedZoneIds]);
+
+  useEffect(() => {
+    if (!isFocused) return;
+
+    const interval = setInterval(() => {
+      loadDangerZones();
+      loadMyLocation();
+    }, 15000);
+
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFocused]);
+
+  async function handleGetSafeRoute() {
+    if (!myPos || !activeZone) return;
+
+    if (!ORS_API_KEY) {
+      setRouteError("Missing EXPO_PUBLIC_ORS_API_KEY in .env");
+      return;
+    }
+
+    setRouteLoading(true);
+    setRouteError(null);
+
+    try {
+      const target = computeSafePoint(activeZone, myPos);
+      setSafePoint(target);
+
+      const route = await fetchSafeRoute(myPos, target);
+      setRoutePoints(route.points || []);
+      setRouteSummary(route.summary || null);
+
+      if (route.points?.length && mapRef.current) {
+        mapRef.current.fitToCoordinates(
+          [
+            myPos,
+            target,
+            ...route.points,
+          ],
+          {
+            edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
+            animated: true,
+          }
+        );
+      }
+    } catch (e) {
+      setRouteError(e?.message || "Failed to fetch safe route.");
+      setRoutePoints([]);
+      setRouteSummary(null);
+    } finally {
+      setRouteLoading(false);
     }
   }
 
-  checkNearbyDanger();
-}, [myPos, dangerZones]);
-
-useEffect(() => {
-  if (!isFocused) return;
-
-  const interval = setInterval(() => {
-    loadDangerZones();
-  }, 15000); // every 15 seconds
-
-  return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [isFocused]);
+  function handleClearRoute() {
+    setSafePoint(null);
+    setRoutePoints([]);
+    setRouteSummary(null);
+    setRouteError(null);
+  }
 
   const filtered = useMemo(() => {
     return (incidents || []).filter((inc) => {
@@ -266,17 +431,69 @@ useEffect(() => {
     };
   }, [myPos]);
 
+  const routeDistanceKm = routeSummary?.distance
+    ? (routeSummary.distance / 1000).toFixed(2)
+    : null;
+
+  const routeDurationMin = routeSummary?.duration
+    ? Math.ceil(routeSummary.duration / 60)
+    : null;
+
   return (
     <Screen>
       <Header title="Live incidents dashboard" subtitle="Map + filters" />
 
-      {/* ✅ Chip uses ONLY `text` */}
       <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
         <Chip icon="pulse" text={`Incidents: ${filtered.length}`} tone="danger" />
         <Chip icon="navigate" text={`Markers: ${grouped.length}`} />
       </View>
 
-      {/* Filters */}
+      {activeZone ? (
+        <Card strong style={{ marginBottom: 12 }}>
+          <Text style={{ color: theme.colors.warn, fontWeight: "900", fontSize: 16 }}>
+            You are inside a danger zone
+          </Text>
+
+          <Text style={{ color: theme.colors.faint, marginTop: 8 }}>
+            Get a safe route to a point outside the active danger radius.
+          </Text>
+
+          {routeError ? (
+            <Text style={{ color: theme.colors.danger, marginTop: 10 }}>
+              {routeError}
+            </Text>
+          ) : null}
+
+          {routeSummary ? (
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              {routeDistanceKm ? (
+                <Chip icon="swap-horizontal" text={`${routeDistanceKm} km`} />
+              ) : null}
+              {routeDurationMin ? (
+                <Chip icon="time" text={`${routeDurationMin} min`} />
+              ) : null}
+            </View>
+          ) : null}
+
+          <View style={{ height: 12 }} />
+
+          <PrimaryButton
+            title={routeLoading ? "Generating route..." : "Get Safe Route"}
+            onPress={handleGetSafeRoute}
+            disabled={routeLoading}
+          />
+
+          {routePoints.length ? (
+            <View style={{ marginTop: 10 }}>
+              <PrimaryButton
+                title="Clear Route"
+                onPress={handleClearRoute}
+              />
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+
       <Card style={{ marginBottom: 12 }}>
         <Text style={{ color: theme.colors.faint, fontWeight: "900", marginBottom: 10 }}>
           Status
@@ -345,21 +562,22 @@ useEffect(() => {
         </View>
       </Card>
 
-      {/* ✅ IMPORTANT FIX: explicit Map height so it never disappears */}
       <Card strong style={{ overflow: "hidden" }}>
         {loading ? (
           <View style={{ paddingVertical: 18, alignItems: "center" }}>
             <ActivityIndicator />
-            <Text style={{ color: theme.colors.faint, marginTop: 10 }}>Loading incidents…</Text>
+            <Text style={{ color: theme.colors.faint, marginTop: 10 }}>
+              Loading incidents…
+            </Text>
           </View>
         ) : err ? (
           <Text style={{ color: theme.colors.danger, fontWeight: "900" }}>{err}</Text>
         ) : (
           <MapView
-            style={{ height: 420, width: "100%" }}   // ✅ map always visible
+            ref={mapRef}
+            style={{ height: 420, width: "100%" }}
             initialRegion={initialRegion}
           >
-            {/* current location marker */}
             {myPos ? (
               <Marker
                 coordinate={myPos}
@@ -369,32 +587,60 @@ useEffect(() => {
               />
             ) : null}
 
-             {dangerZones.map((zone) => {
-    if (
-      !Number.isFinite(zone.latitude) ||
-      !Number.isFinite(zone.longitude) ||
-      !Number.isFinite(zone.radius_m)
-    ) {
-      return null;
-    }
+            {safePoint ? (
+  <Marker
+    coordinate={safePoint}
+    title="Safe point"
+    description="Suggested point outside danger zone"
+    pinColor="#2563EB"
+  />
+) : null}
 
-    return (
-      <Circle
-        key={zone.id}
-        center={{
-          latitude: zone.latitude,
-          longitude: zone.longitude,
-        }}
-        radius={zone.radius_m}
-        strokeWidth={2}
-        strokeColor="rgba(255, 0, 0, 0.7)"
-        fillColor="rgba(255, 0, 0, 0.2)"
-      />
-    );
-  })}
+            {dangerZones.map((zone) => {
+              if (
+                !Number.isFinite(zone.latitude) ||
+                !Number.isFinite(zone.longitude) ||
+                !Number.isFinite(zone.radius_m)
+              ) {
+                return null;
+              }
 
+              return (
+                <Circle
+                  key={zone.id}
+                  center={{
+                    latitude: zone.latitude,
+                    longitude: zone.longitude,
+                  }}
+                  radius={zone.radius_m}
+                  strokeWidth={2}
+                  strokeColor="rgba(255, 0, 0, 0.7)"
+                  fillColor="rgba(255, 0, 0, 0.2)"
+                />
+              );
+            })}
 
-            {/* grouped incident markers */}
+            {routePoints.length ? (
+  <>
+    <Polyline
+      coordinates={routePoints}
+      strokeWidth={10}
+      strokeColor="rgba(255,255,255,0.95)"
+      lineCap="round"
+      lineJoin="round"
+      zIndex={9}
+    />
+    <Polyline
+      coordinates={routePoints}
+      strokeWidth={6}
+      strokeColor="#2563EB"
+      lineCap="round"
+      lineJoin="round"
+      zIndex={10}
+    />
+  </>
+) : null}
+
             {grouped.map((g) => {
               const count = g.items.length;
               const groupStatus = dominantStatus(g.items);
@@ -411,7 +657,6 @@ useEffect(() => {
                     })
                   }
                 >
-                  {/* custom marker (same structure as before, just colored) */}
                   <View style={{ alignItems: "center" }}>
                     <View
                       style={{
