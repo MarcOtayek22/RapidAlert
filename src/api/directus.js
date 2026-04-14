@@ -22,9 +22,12 @@ const VERIFIED_BADGE_THRESHOLD = 4;
 ========================================================= */
 async function request(
   path,
-  { method = "GET", body, auth = true, timeoutMs = 12000 } = {}
+  { method = "GET", body, auth = true, timeoutMs = 12000, headers: extraHeaders = {} } = {}
 ) {
-  const headers = { "Content-Type": "application/json" };
+  const headers = {
+    "Content-Type": "application/json",
+    ...extraHeaders,
+  };
 
   if (auth) {
     const token = await SecureStore.getItemAsync(TOKEN_KEY);
@@ -47,7 +50,7 @@ async function request(
 
     if (!res.ok) {
       const msg =
-        json?.errors?.[0]?.message || json?.error || `HTTP ${res.status}`;
+        json?.errors?.[0]?.message || json?.error || json?.message || `HTTP ${res.status}`;
       throw new Error(msg);
     }
 
@@ -65,6 +68,26 @@ export function fileAssetUrl(fileId) {
 /* =========================================================
    Auth
 ========================================================= */
+export async function registerUser({
+  email,
+  password,
+  first_name = "",
+  last_name = "",
+}) {
+  const r = await request("/users/register", {
+    method: "POST",
+    body: {
+      email,
+      password,
+      first_name,
+      last_name,
+    },
+    auth: false,
+  });
+
+  return r?.data ?? r;
+}
+
 export async function login(email, password) {
   const r = await request("/auth/login", {
     method: "POST",
@@ -130,7 +153,8 @@ export async function listIncidents() {
   const r = await request(
     `/items/incidents?sort=-date_created&limit=200&fields=${encodeURIComponent(
       fields
-    )}`
+    )}`,
+    { auth: false }
   );
   return r?.data || [];
 }
@@ -142,7 +166,8 @@ export async function getIncident(id) {
     "trust_applied,trust_applied_at,voter_trust_applied,voter_trust_applied_at";
 
   const r = await request(
-    `/items/incidents/${id}?fields=${encodeURIComponent(fields)}`
+    `/items/incidents/${id}?fields=${encodeURIComponent(fields)}`,
+    { auth: true }
   );
   return r?.data;
 }
@@ -272,7 +297,8 @@ async function getUserById(userId) {
   if (!userId) throw new Error("Missing userId");
 
   const r = await request(
-    `/users/${userId}?fields=id,trust_score,verified_badge`
+    `/users/${userId}?fields=id,trust_score,verified_badge`,
+    { auth: true }
   );
   return r?.data;
 }
@@ -462,7 +488,9 @@ export async function adminSetIncidentStatus(
 }
 
 export async function listDangerZones() {
-  const res = await request("/items/danger_zones?filter[active][_eq]=true");
+  const res = await request("/items/danger_zones?filter[active][_eq]=true", {
+    auth: false,
+  });
   return res?.data || [];
 }
 
@@ -498,7 +526,8 @@ export async function listSosRequests() {
   ].join(",");
 
   const r = await request(
-    `/items/sos_requests?sort=-date_created&limit=100&fields=${encodeURIComponent(fields)}`
+    `/items/sos_requests?sort=-date_created&limit=100&fields=${encodeURIComponent(fields)}`,
+    { auth: true }
   );
 
   return r?.data || [];
@@ -584,7 +613,8 @@ export async function listSupportPosts() {
   ].join(",");
 
   const r = await request(
-    `/items/support_posts?sort=-date_created&limit=200&fields=${encodeURIComponent(fields)}`
+    `/items/support_posts?sort=-date_created&limit=200&fields=${encodeURIComponent(fields)}`,
+    { auth: true }
   );
 
   return r?.data || [];

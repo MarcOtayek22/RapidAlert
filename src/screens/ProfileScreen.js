@@ -1,6 +1,6 @@
 // src/screens/ProfileScreen.js
 import React, { useMemo, useState } from "react";
-import { Text, View, TextInput } from "react-native";
+import { Text, View, TextInput, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import Screen from "../components/Screen";
@@ -10,13 +10,93 @@ import Chip from "../components/Chip";
 import PrimaryButton from "../components/PrimaryButton";
 import { theme } from "../theme/theme";
 import { useAuth } from "../auth/AuthContext";
+import { registerUser } from "../api/directus";
+
+function AuthModeButton({ label, value, mode, setMode, setError, setSuccess }) {
+  const active = mode === value;
+
+  return (
+    <Pressable
+      onPress={() => {
+        setMode(value);
+        setError(null);
+        setSuccess(null);
+      }}
+      style={{
+        flex: 1,
+        paddingVertical: 10,
+        borderRadius: 14,
+        alignItems: "center",
+        backgroundColor: active ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
+        borderWidth: 1,
+        borderColor: active ? "rgba(255,255,255,0.35)" : theme.colors.border,
+      }}
+    >
+      <Text
+        style={{
+          color: active ? theme.colors.text : theme.colors.muted,
+          fontWeight: "900",
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function InputRow({
+  icon,
+  value,
+  onChangeText,
+  placeholder,
+  secureTextEntry = false,
+  autoCapitalize = "none",
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        backgroundColor: "rgba(255,255,255,0.06)",
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderRadius: 16,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+      }}
+    >
+      <Ionicons name={icon} size={18} color={theme.colors.primary} />
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={theme.colors.muted}
+        autoCapitalize={autoCapitalize}
+        secureTextEntry={secureTextEntry}
+        style={{ color: theme.colors.text, flex: 1, fontWeight: "800" }}
+      />
+    </View>
+  );
+}
 
 export default function ProfileScreen({ navigation }) {
   const { me, role, verified, isLoggedIn, login, logout, loading, refresh } = useAuth();
 
-  const [email, setEmail] = useState("user@rapidalert.com");
-  const [password, setPassword] = useState("12345678");
+  const [mode, setMode] = useState("login");
+
+  const [loginEmail, setLoginEmail] = useState("user@rapidalert.com");
+  const [loginPassword, setLoginPassword] = useState("12345678");
+
+  const [signupFirstName, setSignupFirstName] = useState("");
+  const [signupLastName, setSignupLastName] = useState("");
+  const [signupEmail, setSignupEmail] = useState("");
+  const [signupPassword, setSignupPassword] = useState("");
+  const [signupConfirmPassword, setSignupConfirmPassword] = useState("");
+
   const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const [authBusy, setAuthBusy] = useState(false);
 
   const roleNorm = useMemo(() => String(role || "guest").trim().toLowerCase(), [role]);
 
@@ -39,10 +119,78 @@ export default function ProfileScreen({ navigation }) {
 
   async function handleLogin() {
     try {
+      setAuthBusy(true);
       setError(null);
-      await login(email.trim(), password);
+      setSuccess(null);
+      await login(loginEmail.trim(), loginPassword);
     } catch (e) {
       setError(e?.message || "Login failed");
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function handleSignup() {
+    const first = signupFirstName.trim();
+    const last = signupLastName.trim();
+    const email = signupEmail.trim().toLowerCase();
+    const password = signupPassword;
+    const confirm = signupConfirmPassword;
+
+    if (!first) {
+      setError("First name is required.");
+      return;
+    }
+
+    if (!last) {
+      setError("Last name is required.");
+      return;
+    }
+
+    if (!email) {
+      setError("Email is required.");
+      return;
+    }
+
+    if (!email.includes("@")) {
+      setError("Please enter a valid email.");
+      return;
+    }
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    try {
+      setAuthBusy(true);
+      setError(null);
+      setSuccess(null);
+
+      await registerUser({
+        email,
+        password,
+        first_name: first,
+        last_name: last,
+      });
+
+      await login(email, password);
+
+      setSuccess("Account created successfully.");
+      setSignupFirstName("");
+      setSignupLastName("");
+      setSignupEmail("");
+      setSignupPassword("");
+      setSignupConfirmPassword("");
+    } catch (e) {
+      setError(e?.message || "Signup failed");
+    } finally {
+      setAuthBusy(false);
     }
   }
 
@@ -65,76 +213,133 @@ export default function ProfileScreen({ navigation }) {
           <Text style={{ color: theme.colors.faint }}>⏳ Loading...</Text>
         ) : isGuest ? (
           <>
-            <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>👋 Guest</Text>
+            <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 16 }}>
+              👋 Guest
+            </Text>
             <Text style={{ color: theme.colors.faint, marginTop: 8 }}>
               You can browse, but reporting / SOS requires login.
             </Text>
 
             <View style={{ height: theme.spacing(2) }} />
 
-            <View style={{ gap: 10 }}>
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                  borderRadius: 16,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                }}
-              >
-                <Ionicons name="mail" size={18} color={theme.colors.primary} />
-                <TextInput
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="Email"
-                  placeholderTextColor={theme.colors.muted}
-                  autoCapitalize="none"
-                  style={{ color: theme.colors.text, flex: 1, fontWeight: "800" }}
-                />
-              </View>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 10,
-                  backgroundColor: "rgba(255,255,255,0.06)",
-                  borderWidth: 1,
-                  borderColor: theme.colors.border,
-                  borderRadius: 16,
-                  paddingHorizontal: 12,
-                  paddingVertical: 10,
-                }}
-              >
-                <Ionicons name="key" size={18} color={theme.colors.primary} />
-                <TextInput
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="Password"
-                  placeholderTextColor={theme.colors.muted}
-                  secureTextEntry
-                  style={{ color: theme.colors.text, flex: 1, fontWeight: "800" }}
-                />
-              </View>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              <AuthModeButton
+                label="Login"
+                value="login"
+                mode={mode}
+                setMode={setMode}
+                setError={setError}
+                setSuccess={setSuccess}
+              />
+              <AuthModeButton
+                label="Sign Up"
+                value="signup"
+                mode={mode}
+                setMode={setMode}
+                setError={setError}
+                setSuccess={setSuccess}
+              />
             </View>
 
-            <View style={{ height: theme.spacing(1) }} />
+            <View style={{ height: theme.spacing(2) }} />
 
-            {error ? (
-              <Text style={{ color: theme.colors.danger, marginBottom: 10, fontWeight: "900" }}>
-                ❌ {error}
-              </Text>
-            ) : null}
+            {mode === "login" ? (
+              <View style={{ gap: 10 }}>
+                <InputRow
+                  icon="mail"
+                  value={loginEmail}
+                  onChangeText={setLoginEmail}
+                  placeholder="Email"
+                />
 
-            <PrimaryButton
-              title="Login"
-              onPress={handleLogin}
-              icon={<Ionicons name="log-in" size={18} color="white" />}
-            />
+                <InputRow
+                  icon="key"
+                  value={loginPassword}
+                  onChangeText={setLoginPassword}
+                  placeholder="Password"
+                  secureTextEntry
+                />
+
+                {error ? (
+                  <Text style={{ color: theme.colors.danger, fontWeight: "900" }}>
+                    ❌ {error}
+                  </Text>
+                ) : null}
+
+                {success ? (
+                  <Text style={{ color: theme.colors.success, fontWeight: "900" }}>
+                    ✅ {success}
+                  </Text>
+                ) : null}
+
+                <PrimaryButton
+                  title={authBusy ? "Logging in..." : "Login"}
+                  onPress={handleLogin}
+                  disabled={authBusy}
+                  icon={<Ionicons name="log-in" size={18} color="white" />}
+                />
+              </View>
+            ) : (
+              <View style={{ gap: 10 }}>
+                <InputRow
+                  icon="person"
+                  value={signupFirstName}
+                  onChangeText={setSignupFirstName}
+                  placeholder="First name"
+                  autoCapitalize="words"
+                />
+
+                <InputRow
+                  icon="person"
+                  value={signupLastName}
+                  onChangeText={setSignupLastName}
+                  placeholder="Last name"
+                  autoCapitalize="words"
+                />
+
+                <InputRow
+                  icon="mail"
+                  value={signupEmail}
+                  onChangeText={setSignupEmail}
+                  placeholder="Email"
+                />
+
+                <InputRow
+                  icon="key"
+                  value={signupPassword}
+                  onChangeText={setSignupPassword}
+                  placeholder="Password"
+                  secureTextEntry
+                />
+
+                <InputRow
+                  icon="checkmark-circle"
+                  value={signupConfirmPassword}
+                  onChangeText={setSignupConfirmPassword}
+                  placeholder="Confirm password"
+                  secureTextEntry
+                />
+
+                {error ? (
+                  <Text style={{ color: theme.colors.danger, fontWeight: "900" }}>
+                    ❌ {error}
+                  </Text>
+                ) : null}
+
+                {success ? (
+                  <Text style={{ color: theme.colors.success, fontWeight: "900" }}>
+                    ✅ {success}
+                  </Text>
+                ) : null}
+
+                <PrimaryButton
+                  title={authBusy ? "Creating account..." : "Create Account"}
+                  onPress={handleSignup}
+                  disabled={authBusy}
+                  icon={<Ionicons name="person-add" size={18} color="white" />}
+                />
+              </View>
+            )}
           </>
         ) : (
           <>
