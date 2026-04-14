@@ -143,6 +143,49 @@ export async function uploadFile({
 }
 
 /* =========================================================
+   Volunteer Applications
+========================================================= */
+export async function createVolunteerApplication(payload) {
+  const r = await request(
+    "/items/volunteer_applications?fields=id,credentials_text,status,user,files,date_created",
+    {
+      method: "POST",
+      body: payload,
+      auth: true,
+    }
+  );
+  return r?.data;
+}
+
+export async function listMyVolunteerApplications(userId) {
+  if (!userId) return [];
+
+  const fields = [
+    "id",
+    "credentials_text",
+    "status",
+    "date_created",
+    "user.id",
+    "user.email",
+    "files.directus_files_id.id",
+    "files.directus_files_id.filename_download",
+  ].join(",");
+
+  const params = new URLSearchParams({
+    "filter[user][_eq]": String(userId),
+    sort: "-date_created",
+    limit: "20",
+    fields,
+  });
+
+  const r = await request(`/items/volunteer_applications?${params.toString()}`, {
+    auth: true,
+  });
+
+  return r?.data || [];
+}
+
+/* =========================================================
    Incidents
 ========================================================= */
 export async function listIncidents() {
