@@ -215,9 +215,13 @@ export default function MapScreen() {
 
       setDangerZones(fixed);
     } catch (e) {
-      console.error("Failed to load danger zones:", e);
-      setDangerZones([]);
-    }
+  if (e?.name === "AbortError") {
+    return;
+  }
+
+  console.error("Failed to load danger zones:", e);
+  setDangerZones([]);
+}
   }
 
   async function loadMyLocation() {
