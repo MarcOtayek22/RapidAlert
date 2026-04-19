@@ -1,6 +1,14 @@
 // src/screens/SosScreen.js
 import React, { useEffect, useMemo, useState } from "react";
-import { Text, View, TextInput, Pressable, ActivityIndicator } from "react-native";
+import {
+  Text,
+  View,
+  TextInput,
+  Pressable,
+  ActivityIndicator,
+  Linking,
+  Platform,
+} from "react-native";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
@@ -27,6 +35,29 @@ function prettyStatus(status) {
   if (s === "resolved") return "Resolved";
   if (s === "cancelled") return "Cancelled";
   return status || "Unknown";
+}
+
+async function openDefaultMap(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+  const label = "SOS Location";
+  const url =
+    Platform.OS === "ios"
+      ? `http://maps.apple.com/?ll=${latitude},${longitude}&q=${encodeURIComponent(label)}`
+      : `geo:${latitude},${longitude}?q=${latitude},${longitude}(${encodeURIComponent(label)})`;
+
+  await Linking.openURL(url);
+}
+
+async function openGoogleMaps(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+  const url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+  await Linking.openURL(url);
 }
 
 export default function SosScreen() {
@@ -360,8 +391,24 @@ export default function SosScreen() {
                 Location: {latestMySos.latitude}, {latestMySos.longitude}
               </Text>
 
+              <View style={{ height: theme.spacing(1.5) }} />
+
+              <View style={{ gap: 10 }}>
+                <PrimaryButton
+                  title="Show on Map"
+                  onPress={() => openDefaultMap(latestMySos?.latitude, latestMySos?.longitude)}
+                  icon={<Ionicons name="map" size={18} color="white" />}
+                />
+
+                <PrimaryButton
+                  title="Open in Google Maps"
+                  onPress={() => openGoogleMaps(latestMySos?.latitude, latestMySos?.longitude)}
+                  icon={<Ionicons name="navigate" size={18} color="white" />}
+                />
+              </View>
+
               {latestMySos.assigned_volunteer?.email ? (
-                <Text style={{ color: theme.colors.success, marginTop: 6, fontWeight: "800" }}>
+                <Text style={{ color: theme.colors.success, marginTop: 10, fontWeight: "800" }}>
                   Assigned volunteer: {latestMySos.assigned_volunteer.email}
                 </Text>
               ) : null}

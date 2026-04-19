@@ -1,6 +1,6 @@
 // src/screens/VolunteerTasksScreen.js
 import React, { useEffect, useMemo, useState } from "react";
-import { Text, View, ActivityIndicator } from "react-native";
+import { Text, View, ActivityIndicator, Linking, Platform } from "react-native";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -33,6 +33,29 @@ function distanceInMeters(lat1, lon1, lat2, lon2) {
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+}
+
+async function openDefaultMap(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+  const label = "SOS Location";
+  const url =
+    Platform.OS === "ios"
+      ? `http://maps.apple.com/?ll=${latitude},${longitude}&q=${encodeURIComponent(label)}`
+      : `geo:${latitude},${longitude}?q=${latitude},${longitude}(${encodeURIComponent(label)})`;
+
+  await Linking.openURL(url);
+}
+
+async function openGoogleMaps(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+  const url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+  await Linking.openURL(url);
 }
 
 export default function VolunteerTasksScreen() {
@@ -269,6 +292,22 @@ export default function VolunteerTasksScreen() {
               <Text style={{ color: theme.colors.faint, marginTop: 6 }}>
                 Location: {item?.latitude}, {item?.longitude}
               </Text>
+
+              <View style={{ height: theme.spacing(1.5) }} />
+
+              <View style={{ gap: 10 }}>
+                <PrimaryButton
+                  title="Show on Map"
+                  onPress={() => openDefaultMap(item?.latitude, item?.longitude)}
+                  icon={<Ionicons name="map" size={18} color="white" />}
+                />
+
+                <PrimaryButton
+                  title="Open in Google Maps"
+                  onPress={() => openGoogleMaps(item?.latitude, item?.longitude)}
+                  icon={<Ionicons name="navigate" size={18} color="white" />}
+                />
+              </View>
 
               <View style={{ height: theme.spacing(2) }} />
 
