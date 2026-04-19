@@ -7,6 +7,7 @@ import {
   Pressable,
   TextInput,
   ActivityIndicator,
+  Linking,
 } from "react-native";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
@@ -36,6 +37,15 @@ function isVerifiedBool(v) {
   return v === true || v === 1 || v === "true";
 }
 
+async function openGoogleMaps(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
+
+  const url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+  await Linking.openURL(url);
+}
+
 export default function CommunityScreen() {
   const { isLoggedIn, me, role, verified } = useAuth();
 
@@ -54,7 +64,10 @@ export default function CommunityScreen() {
 
   const roleNorm = useMemo(() => normalizeRole(role), [role]);
   const verifiedBool = useMemo(() => isVerifiedBool(verified), [verified]);
-  const canVerifyPost = isLoggedIn && verifiedBool && (roleNorm === "user" || roleNorm === "volunteer" || roleNorm === "admin");
+  const canVerifyPost =
+    isLoggedIn &&
+    verifiedBool &&
+    (roleNorm === "user" || roleNorm === "volunteer" || roleNorm === "admin");
 
   async function getGps() {
     setGpsLoading(true);
@@ -122,7 +135,7 @@ export default function CommunityScreen() {
       await createSupportPost({
         type: TYPE_TO_DB[tab],
         category,
-        decription: description.trim(), // matches your Directus field name
+        decription: description.trim(),
         latitude: coords.lat,
         longitude: coords.lng,
         status: "open",
@@ -396,9 +409,14 @@ export default function CommunityScreen() {
                     <Chip icon="checkmark-circle" text="Verified post" tone="success" />
                   ) : null}
                   {post?.accepted_by?.email ? (
-                  <Chip icon="hand-left"text={tab === "Offers"? `Needer: ${post.accepted_by.email}`: `Helper: ${post.accepted_by.email}`
-                }
-                  />
+                    <Chip
+                      icon="hand-left"
+                      text={
+                        tab === "Offers"
+                          ? `Needer: ${post.accepted_by.email}`
+                          : `Helper: ${post.accepted_by.email}`
+                      }
+                    />
                   ) : null}
                 </View>
 
@@ -414,13 +432,27 @@ export default function CommunityScreen() {
                   Location: {post?.latitude}, {post?.longitude}
                 </Text>
 
+                <View style={{ height: 10 }} />
+
+                <PrimaryButton
+                  title="Open in Google Maps"
+                  onPress={() => openGoogleMaps(post?.latitude, post?.longitude)}
+                  icon={<Ionicons name="navigate" size={18} color="white" />}
+                />
+
                 {!isCompleted ? (
                   <>
                     <View style={{ height: 12 }} />
 
                     {!post?.accepted_by?.id && isLoggedIn ? (
                       <PrimaryButton
-                        title={busyId === post.id? "Updating...": tab === "Offers"? "I’ll Need That": "I’ll Help"}
+                        title={
+                          busyId === post.id
+                            ? "Updating..."
+                            : tab === "Offers"
+                            ? "I’ll Need That"
+                            : "I’ll Help"
+                        }
                         onPress={() => handleHelp(post)}
                         disabled={busyId === post.id}
                         icon={<Ionicons name="hand-left" size={18} color="white" />}
@@ -429,7 +461,9 @@ export default function CommunityScreen() {
 
                     {alreadyHelping ? (
                       <Text style={{ color: theme.colors.success, marginTop: 10, fontWeight: "800" }}>
-                        You are helping with this post.
+                        {tab === "Offers"
+                          ? "You requested this offer."
+                          : "You are helping with this post."}
                       </Text>
                     ) : null}
 
