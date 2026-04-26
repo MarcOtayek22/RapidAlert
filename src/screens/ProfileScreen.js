@@ -360,20 +360,20 @@ export default function ProfileScreen({ navigation }) {
 
             <View style={{ height: theme.spacing(2) }} />
 
-            {(isUser || isAdmin) && !verifiedBool ? (
-              <>
-                <Text style={{ color: theme.colors.faint, marginBottom: 10 }}>
-                  🧾 Apply to become a verified volunteer.
-                </Text>
+           {(isUser || isAdmin) ? (
+  <>
+    <Text style={{ color: theme.colors.faint, marginBottom: 10 }}>
+      🧾 Apply to become a volunteer.
+    </Text>
 
-                <PrimaryButton
-                  title="Apply to be Volunteer"
-                  onPress={() => navigation.navigate("VolunteerApply")}
-                  icon={<Ionicons name="shield-checkmark" size={18} color="white" />}
-                />
-                <View style={{ height: theme.spacing(2) }} />
-              </>
-            ) : null}
+    <PrimaryButton
+      title="Apply to be Volunteer"
+      onPress={() => navigation.navigate("VolunteerApply")}
+      icon={<Ionicons name="shield-checkmark" size={18} color="white" />}
+    />
+    <View style={{ height: theme.spacing(2) }} />
+  </>
+) : null}
 
             {isVolunteer && !verifiedBool ? (
               <>

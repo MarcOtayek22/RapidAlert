@@ -1,9 +1,16 @@
 // src/screens/MapScreen.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, ActivityIndicator, Pressable } from "react-native";
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+} from "react-native";
 import MapView, { Marker, Circle, Polyline } from "react-native-maps";
 import * as Location from "expo-location";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 
 import Screen from "../components/Screen";
 import Header from "../components/Header";
@@ -21,9 +28,10 @@ const STATUS_OPTIONS = ["all", "unverified", "verified", "disputed", "false"];
 const CATEGORY_OPTIONS = ["all", "Fire", "Road Closure", "Explosion", "Medical", "Other"];
 const ORS_API_KEY = process.env.EXPO_PUBLIC_ORS_API_KEY || "";
 const SAFE_BUFFER_M = 120;
+const INCIDENT_GROUP_DISTANCE_M = 300;
 
 function statusColor(status) {
-  const s = (status || "").toLowerCase();
+  const s = String(status || "").toLowerCase();
   if (s === "verified") return theme.colors.success;
   if (s === "unverified") return theme.colors.primary2;
   if (s === "disputed") return theme.colors.warn;
@@ -34,23 +42,21 @@ function statusColor(status) {
 function dominantStatus(items = []) {
   const counts = {};
   for (const it of items) {
-    const s = (it?.status || "unknown").toLowerCase();
+    const s = String(it?.status || "unknown").toLowerCase();
     counts[s] = (counts[s] || 0) + 1;
   }
+
   let best = "unknown";
   let bestCount = -1;
+
   for (const [s, c] of Object.entries(counts)) {
     if (c > bestCount) {
       best = s;
       bestCount = c;
     }
   }
-  return best;
-}
 
-function groupKey(lat, lng) {
-  const r = (n) => Number(n).toFixed(4);
-  return `${r(lat)}|${r(lng)}`;
+  return best;
 }
 
 function distanceInMeters(lat1, lon1, lat2, lon2) {
@@ -73,11 +79,6 @@ function distanceInMeters(lat1, lon1, lat2, lon2) {
 
 function metersToLatitudeDelta(meters) {
   return meters / 111320;
-}
-
-function metersToLongitudeDelta(meters, latitude) {
-  const denom = 111320 * Math.cos((latitude * Math.PI) / 180);
-  return denom === 0 ? 0 : meters / denom;
 }
 
 function computeSafePoint(zone, userPos) {
@@ -107,12 +108,9 @@ function computeSafePoint(zone, userPos) {
 
   const scale = targetDistance / distance;
 
-  const safeLat = centerLat + latDelta * scale;
-  const safeLng = centerLng + lngDelta * scale;
-
   return {
-    latitude: safeLat,
-    longitude: safeLng,
+    latitude: centerLat + latDelta * scale,
+    longitude: centerLng + lngDelta * scale,
   };
 }
 
@@ -157,6 +155,97 @@ async function fetchSafeRoute(start, end) {
   };
 }
 
+function buildDistanceGroups(incidents, thresholdMeters = 300) {
+  const valid = (incidents || []).filter((inc) => {
+    const lat = Number(inc?.latitude);
+    const lng = Number(inc?.longitude);
+    return Number.isFinite(lat) && Number.isFinite(lng);
+  });
+
+  const groups = [];
+
+  for (const inc of valid) {
+    const lat = Number(inc.latitude);
+    const lng = Number(inc.longitude);
+
+    let matchedGroupIndex = -1;
+    let bestDistance = Infinity;
+
+    for (let i = 0; i < groups.length; i += 1) {
+      const g = groups[i];
+      const d = distanceInMeters(lat, lng, g.latitude, g.longitude);
+
+      if (d <= thresholdMeters && d < bestDistance) {
+        matchedGroupIndex = i;
+        bestDistance = d;
+      }
+    }
+
+    if (matchedGroupIndex === -1) {
+      groups.push({
+        key: `group-${inc.id}`,
+        latitude: lat,
+        longitude: lng,
+        items: [inc],
+      });
+    } else {
+      const g = groups[matchedGroupIndex];
+      g.items.push(inc);
+
+      const count = g.items.length;
+      const sumLat = g.items.reduce((acc, item) => acc + Number(item.latitude), 0);
+      const sumLng = g.items.reduce((acc, item) => acc + Number(item.longitude), 0);
+
+      g.latitude = sumLat / count;
+      g.longitude = sumLng / count;
+      g.key = `group-${g.items.map((item) => item.id).join("-")}`;
+    }
+  }
+
+  return groups;
+}
+
+function prettyDate(value) {
+  if (!value) return "Unknown date";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString();
+}
+
+function ViewToggleButton({ active, label, icon, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flex: 1,
+        paddingVertical: 11,
+        borderRadius: 14,
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "row",
+        gap: 8,
+        borderWidth: 1,
+        borderColor: active ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)",
+        backgroundColor: active ? "rgba(255,255,255,0.10)" : "rgba(255,255,255,0.04)",
+      }}
+    >
+      <Ionicons
+        name={icon}
+        size={16}
+        color={active ? theme.colors.text : theme.colors.muted}
+      />
+      <Text
+        style={{
+          color: active ? theme.colors.text : theme.colors.muted,
+          fontWeight: "900",
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
 export default function MapScreen() {
   const navigation = useNavigation();
   const isFocused = useIsFocused();
@@ -170,6 +259,7 @@ export default function MapScreen() {
   const [dangerZones, setDangerZones] = useState([]);
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [viewMode, setViewMode] = useState("map"); // map | list
 
   const [myPos, setMyPos] = useState(null);
 
@@ -183,6 +273,7 @@ export default function MapScreen() {
   async function loadIncidents() {
     setLoading(true);
     setErr(null);
+
     try {
       const data = await listIncidents();
       const items = Array.isArray(data) ? data : data?.data ?? [];
@@ -215,19 +306,17 @@ export default function MapScreen() {
 
       setDangerZones(fixed);
     } catch (e) {
-  if (e?.name === "AbortError") {
-    return;
-  }
-
-  console.error("Failed to load danger zones:", e);
-  setDangerZones([]);
-}
+      if (e?.name === "AbortError") return;
+      console.error("Failed to load danger zones:", e);
+      setDangerZones([]);
+    }
   }
 
   async function loadMyLocation() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
+
       const loc = await Location.getCurrentPositionAsync({});
       setMyPos({
         latitude: loc.coords.latitude,
@@ -360,17 +449,10 @@ export default function MapScreen() {
       setRouteSummary(route.summary || null);
 
       if (route.points?.length && mapRef.current) {
-        mapRef.current.fitToCoordinates(
-          [
-            myPos,
-            target,
-            ...route.points,
-          ],
-          {
-            edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
-            animated: true,
-          }
-        );
+        mapRef.current.fitToCoordinates([myPos, target, ...route.points], {
+          edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
+          animated: true,
+        });
       }
     } catch (e) {
       setRouteError(e?.message || "Failed to fetch safe route.");
@@ -390,32 +472,18 @@ export default function MapScreen() {
 
   const filtered = useMemo(() => {
     return (incidents || []).filter((inc) => {
-      const s = (inc?.status || "").toLowerCase();
+      const s = String(inc?.status || "").toLowerCase();
       const statusOk = statusFilter === "all" || s === statusFilter;
 
       const categoryOk =
-        categoryFilter === "all" || (inc?.category || "") === categoryFilter;
+        categoryFilter === "all" || String(inc?.category || "") === categoryFilter;
 
       return statusOk && categoryOk;
     });
   }, [incidents, statusFilter, categoryFilter]);
 
   const grouped = useMemo(() => {
-    const map = new Map();
-
-    for (const inc of filtered) {
-      const lat = parseFloat(inc.latitude);
-      const lng = parseFloat(inc.longitude);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
-
-      const key = groupKey(lat, lng);
-      if (!map.has(key)) {
-        map.set(key, { key, latitude: lat, longitude: lng, items: [] });
-      }
-      map.get(key).items.push(inc);
-    }
-
-    return Array.from(map.values());
+    return buildDistanceGroups(filtered, INCIDENT_GROUP_DISTANCE_M);
   }, [filtered]);
 
   const initialRegion = useMemo(() => {
@@ -427,6 +495,7 @@ export default function MapScreen() {
         longitudeDelta: 0.15,
       };
     }
+
     return {
       latitude: 34.0,
       longitude: 35.7,
@@ -452,53 +521,27 @@ export default function MapScreen() {
         <Chip icon="navigate" text={`Markers: ${grouped.length}`} />
       </View>
 
-      {activeZone ? (
-        <Card strong style={{ marginBottom: 12 }}>
-          <Text style={{ color: theme.colors.warn, fontWeight: "900", fontSize: 16 }}>
-            You are inside a danger zone
-          </Text>
-
-          <Text style={{ color: theme.colors.faint, marginTop: 8 }}>
-            Get a safe route to a point outside the active danger radius.
-          </Text>
-
-          {routeError ? (
-            <Text style={{ color: theme.colors.danger, marginTop: 10 }}>
-              {routeError}
-            </Text>
-          ) : null}
-
-          {routeSummary ? (
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-              {routeDistanceKm ? (
-                <Chip icon="swap-horizontal" text={`${routeDistanceKm} km`} />
-              ) : null}
-              {routeDurationMin ? (
-                <Chip icon="time" text={`${routeDurationMin} min`} />
-              ) : null}
-            </View>
-          ) : null}
-
-          <View style={{ height: 12 }} />
-
-          <PrimaryButton
-            title={routeLoading ? "Generating route..." : "Get Safe Route"}
-            onPress={handleGetSafeRoute}
-            disabled={routeLoading}
-          />
-
-          {routePoints.length ? (
-            <View style={{ marginTop: 10 }}>
-              <PrimaryButton
-                title="Clear Route"
-                onPress={handleClearRoute}
-              />
-            </View>
-          ) : null}
-        </Card>
-      ) : null}
-
       <Card style={{ marginBottom: 12 }}>
+        <Text style={{ color: theme.colors.faint, fontWeight: "900", marginBottom: 10 }}>
+          View
+        </Text>
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <ViewToggleButton
+            active={viewMode === "map"}
+            label="Map"
+            icon="map"
+            onPress={() => setViewMode("map")}
+          />
+          <ViewToggleButton
+            active={viewMode === "list"}
+            label="List"
+            icon="list"
+            onPress={() => setViewMode("list")}
+          />
+        </View>
+
+        <View style={{ height: 14 }} />
+
         <Text style={{ color: theme.colors.faint, fontWeight: "900", marginBottom: 10 }}>
           Status
         </Text>
@@ -566,6 +609,49 @@ export default function MapScreen() {
         </View>
       </Card>
 
+      {activeZone ? (
+        <Card strong style={{ marginBottom: 12 }}>
+          <Text style={{ color: theme.colors.warn, fontWeight: "900", fontSize: 16 }}>
+            You are inside a danger zone
+          </Text>
+
+          <Text style={{ color: theme.colors.faint, marginTop: 8 }}>
+            Get a safe route to a point outside the active danger radius.
+          </Text>
+
+          {routeError ? (
+            <Text style={{ color: theme.colors.danger, marginTop: 10 }}>
+              {routeError}
+            </Text>
+          ) : null}
+
+          {routeSummary ? (
+            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              {routeDistanceKm ? (
+                <Chip icon="swap-horizontal" text={`${routeDistanceKm} km`} />
+              ) : null}
+              {routeDurationMin ? (
+                <Chip icon="time" text={`${routeDurationMin} min`} />
+              ) : null}
+            </View>
+          ) : null}
+
+          <View style={{ height: 12 }} />
+
+          <PrimaryButton
+            title={routeLoading ? "Generating route..." : "Get Safe Route"}
+            onPress={handleGetSafeRoute}
+            disabled={routeLoading}
+          />
+
+          {routePoints.length ? (
+            <View style={{ marginTop: 10 }}>
+              <PrimaryButton title="Clear Route" onPress={handleClearRoute} />
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+
       <Card strong style={{ overflow: "hidden" }}>
         {loading ? (
           <View style={{ paddingVertical: 18, alignItems: "center" }}>
@@ -576,7 +662,7 @@ export default function MapScreen() {
           </View>
         ) : err ? (
           <Text style={{ color: theme.colors.danger, fontWeight: "900" }}>{err}</Text>
-        ) : (
+        ) : viewMode === "map" ? (
           <MapView
             ref={mapRef}
             style={{ height: 420, width: "100%" }}
@@ -592,13 +678,13 @@ export default function MapScreen() {
             ) : null}
 
             {safePoint ? (
-  <Marker
-    coordinate={safePoint}
-    title="Safe point"
-    description="Suggested point outside danger zone"
-    pinColor="#2563EB"
-  />
-) : null}
+              <Marker
+                coordinate={safePoint}
+                title="Safe point"
+                description="Suggested point outside danger zone"
+                pinColor="#2563EB"
+              />
+            ) : null}
 
             {dangerZones.map((zone) => {
               if (
@@ -610,40 +696,62 @@ export default function MapScreen() {
               }
 
               return (
-                <Circle
-                  key={zone.id}
-                  center={{
-                    latitude: zone.latitude,
-                    longitude: zone.longitude,
-                  }}
-                  radius={zone.radius_m}
-                  strokeWidth={2}
-                  strokeColor="rgba(255, 0, 0, 0.7)"
-                  fillColor="rgba(255, 0, 0, 0.2)"
-                />
+                <React.Fragment key={zone.id}>
+                  <Circle
+                    center={{
+                      latitude: zone.latitude,
+                      longitude: zone.longitude,
+                    }}
+                    radius={zone.radius_m}
+                    strokeWidth={2}
+                    strokeColor="rgba(255, 0, 0, 0.7)"
+                    fillColor="rgba(255, 0, 0, 0.2)"
+                  />
+
+                  <Marker
+                    coordinate={{
+                      latitude: zone.latitude,
+                      longitude: zone.longitude,
+                    }}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    tracksViewChanges={false}
+                    tappable={false}
+                  >
+                    <View
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        backgroundColor: "#ff0000",
+                        borderWidth: 2,
+                        borderColor: "white",
+                      }}
+                    />
+                  </Marker>
+                </React.Fragment>
               );
             })}
 
             {routePoints.length ? (
-  <>
-    <Polyline
-      coordinates={routePoints}
-      strokeWidth={10}
-      strokeColor="rgba(255,255,255,0.95)"
-      lineCap="round"
-      lineJoin="round"
-      zIndex={9}
-    />
-    <Polyline
-      coordinates={routePoints}
-      strokeWidth={6}
-      strokeColor="#2563EB"
-      lineCap="round"
-      lineJoin="round"
-      zIndex={10}
-    />
-  </>
-) : null}
+              <>
+                <Polyline
+                  coordinates={routePoints}
+                  strokeWidth={10}
+                  strokeColor="rgba(255,255,255,0.95)"
+                  lineCap="round"
+                  lineJoin="round"
+                  zIndex={9}
+                />
+                <Polyline
+                  coordinates={routePoints}
+                  strokeWidth={6}
+                  strokeColor="#2563EB"
+                  lineCap="round"
+                  lineJoin="round"
+                  zIndex={10}
+                />
+              </>
+            ) : null}
 
             {grouped.map((g) => {
               const count = g.items.length;
@@ -654,6 +762,7 @@ export default function MapScreen() {
                 <Marker
                   key={g.key}
                   coordinate={{ latitude: g.latitude, longitude: g.longitude }}
+                  anchor={{ x: 0.5, y: 0.8 }}
                   onPress={() =>
                     navigation.navigate("LocationDetails", {
                       groupKey: g.key,
@@ -704,6 +813,62 @@ export default function MapScreen() {
               );
             })}
           </MapView>
+        ) : (
+          <ScrollView
+            style={{ maxHeight: 420 }}
+            contentContainerStyle={{ paddingBottom: 8 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {filtered.length === 0 ? (
+              <Text style={{ color: theme.colors.faint }}>
+                No incidents match the selected filters.
+              </Text>
+            ) : (
+              filtered.map((incident) => (
+                <Pressable
+                  key={incident.id}
+                  onPress={() => navigation.navigate("IncidentDetails", { id: incident.id })}
+                  style={{
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <View
+                      style={{
+                        width: 10,
+                        height: 10,
+                        borderRadius: 999,
+                        backgroundColor: statusColor(incident.status),
+                      }}
+                    />
+                    <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 15 }}>
+                      {incident.category || "Incident"}
+                    </Text>
+                    <Text style={{ color: theme.colors.faint, fontWeight: "700" }}>
+                      • {incident.status || "unknown"}
+                    </Text>
+                  </View>
+
+                  <Text
+                    style={{ color: theme.colors.faint, marginTop: 6 }}
+                    numberOfLines={2}
+                  >
+                    {incident.description || "No description"}
+                  </Text>
+
+                  <Text style={{ color: theme.colors.faint, marginTop: 6, fontSize: 12 }}>
+                    {prettyDate(incident.date_created)}
+                  </Text>
+
+                  <Text style={{ color: theme.colors.faint, marginTop: 4, fontSize: 12 }}>
+                    {Number(incident.latitude).toFixed(5)}, {Number(incident.longitude).toFixed(5)}
+                  </Text>
+                </Pressable>
+              ))
+            )}
+          </ScrollView>
         )}
       </Card>
     </Screen>
