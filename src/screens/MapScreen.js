@@ -25,7 +25,7 @@ import {
 import { listIncidents, listDangerZones } from "../api/directus";
 
 const STATUS_OPTIONS = ["all", "unverified", "verified", "disputed", "false"];
-const CATEGORY_OPTIONS = ["all", "Fire", "Road Closure", "Explosion", "Medical", "Other"];
+const CATEGORY_OPTIONS = ["all", "Fire", "Road Closure", "Explosion", "Medical","Theft","Car Breakdown","Stuck Somewhere", "Other"];
 const ORS_API_KEY = process.env.EXPO_PUBLIC_ORS_API_KEY || "";
 const SAFE_BUFFER_M = 120;
 const INCIDENT_GROUP_DISTANCE_M = 300;

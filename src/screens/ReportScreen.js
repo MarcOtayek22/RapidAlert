@@ -14,7 +14,16 @@ import { theme } from "../theme/theme";
 import { useAuth } from "../auth/AuthContext";
 import { createIncident, uploadFile } from "../api/directus";
 
-const CATEGORIES = ["Fire", "Road Closure", "Explosion", "Medical", "Other"];
+const CATEGORIES = [
+  "Fire",
+  "Road Closure",
+  "Explosion",
+  "Medical",
+  "Theft",
+  "Car Breakdown",
+  "Stuck Somewhere",
+  "Other",
+];
 
 export default function ReportScreen() {
   const { isLoggedIn, me } = useAuth();
